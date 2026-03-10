@@ -54,18 +54,15 @@ enum Mode {
 
 fn load_script(path: &PathBuf) -> Result<(Context, Unit), StatusCode> {
     // Load rune script
-    let script_content = match std::fs::read_to_string(path) {
-        Ok(content) => content,
-        Err(_) => {
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
-        }
+    let Ok(script_content) = std::fs::read_to_string(path) else {
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
     };
 
     // Compile rune script
     let (context, unit) = match compile_rune_script(&script_content) {
         Ok(result) => result,
         Err(e) => {
-            error!("Failed to compile rune script: {}", e);
+            error!("Failed to compile rune script: {e}");
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     };
@@ -122,7 +119,7 @@ async fn main() -> anyhow::Result<()> {
         }
         #[cfg(not(target_family = "unix"))]
         Err(e) => {
-            error!("Failed to parse listen address: {}", e);
+            error!("Failed to parse listen address: {e}");
             return Err(anyhow::anyhow!("Invalid listen address"));
         }
     }
@@ -145,7 +142,7 @@ async fn handle_with_rune(state: AppState, request: Request) -> Response {
     let body_bytes = match axum::body::to_bytes(request.into_body(), usize::MAX).await {
         Ok(bytes) => bytes,
         Err(e) => {
-            error!("Failed to read request body: {}", e);
+            error!("Failed to read request body: {e}");
             return (StatusCode::BAD_REQUEST, "Failed to read request body").into_response();
         }
     };
@@ -159,11 +156,11 @@ async fn handle_with_rune(state: AppState, request: Request) -> Response {
     let state_clone = state.clone();
 
     let result = tokio::task::spawn_blocking(move || {
-        execute_and_parse_rune_script(&state_clone, method_string, path_string, body_string)
+        execute_and_parse_rune_script(&state_clone, &method_string, &path_string, &body_string)
     })
     .await
     .unwrap_or_else(|e| {
-        error!("Rune task panicked: {}", e);
+        error!("Rune task panicked: {e}");
         Err("Script task failed".to_string())
     });
 
@@ -182,7 +179,7 @@ async fn handle_with_rune(state: AppState, request: Request) -> Response {
             proxy_to_upstream(state, method, uri, headers, body_bytes).await
         }
         Err(e) => {
-            error!("Rune script execution failed: {}", e);
+            error!("Rune script execution failed: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error").into_response()
         }
     }
@@ -198,13 +195,12 @@ async fn proxy_to_upstream(
     let Some(upstream) = state.upstream else {
         return (StatusCode::BAD_GATEWAY, "No upstream server configured").into_response();
     };
-    let upstream_url = format!("{}{}", upstream, uri);
+    let upstream_url = format!("{upstream}{uri}");
 
-    info!("Proxying to: {}", upstream_url);
+    info!("Proxying to: {upstream_url}");
 
     // Convert axum Method to reqwest Method
     let reqwest_method = match method.as_str() {
-        "GET" => reqwest::Method::GET,
         "POST" => reqwest::Method::POST,
         "PUT" => reqwest::Method::PUT,
         "DELETE" => reqwest::Method::DELETE,
@@ -218,7 +214,7 @@ async fn proxy_to_upstream(
     let mut request_builder = state.http_client.request(reqwest_method, &upstream_url);
 
     // Copy headers (excluding host and other problematic headers)
-    for (key, value) in headers.iter() {
+    for (key, value) in &headers {
         if key != "host" && key != "connection" {
             // Convert header name and value to strings and back
             if let Ok(value_str) = value.to_str() {
@@ -242,7 +238,7 @@ async fn proxy_to_upstream(
                 .status(StatusCode::from_u16(status_code).unwrap_or(StatusCode::OK));
 
             // Copy response headers
-            for (key, value) in resp_headers.iter() {
+            for (key, value) in &resp_headers {
                 if let Ok(value_str) = value.to_str() {
                     response = response.header(key.as_str(), value_str);
                 }
@@ -251,10 +247,10 @@ async fn proxy_to_upstream(
             response.body(Body::from(body_bytes)).unwrap()
         }
         Err(e) => {
-            error!("Failed to proxy request: {}", e);
+            error!("Failed to proxy request: {e}");
             (
                 StatusCode::BAD_GATEWAY,
-                format!("Failed to reach upstream server: {}", e),
+                format!("Failed to reach upstream server: {e}"),
             )
                 .into_response()
         }
@@ -263,7 +259,7 @@ async fn proxy_to_upstream(
 
 fn compile_rune_script(script: &str) -> Result<(Context, rune::Unit), String> {
     let context =
-        rune_modules::default_context().map_err(|e| format!("Failed to create context: {}", e))?;
+        rune_modules::default_context().map_err(|e| format!("Failed to create context: {e}"))?;
 
     let mut sources = Sources::new();
     sources
@@ -281,12 +277,12 @@ fn compile_rune_script(script: &str) -> Result<(Context, rune::Unit), String> {
         let mut writer = StandardStream::stderr(ColorChoice::Always);
         diagnostics
             .emit(&mut writer, &sources)
-            .map_err(|e| format!("Failed to emit diagnostics: {}", e))?;
+            .map_err(|e| format!("Failed to emit diagnostics: {e}"))?;
 
         return Err("Script compilation failed".to_string());
     }
 
-    let unit = result.map_err(|e| format!("Build failed: {}", e))?;
+    let unit = result.map_err(|e| format!("Build failed: {e}"))?;
 
     Ok((context, unit))
 }
@@ -303,20 +299,20 @@ fn to_string<T: Display>(value: T) -> String {
 
 fn execute_and_parse_rune_script(
     state: &AppState,
-    method: String,
-    path: String,
-    body: String,
+    method: &str,
+    path: &str,
+    body: &str,
 ) -> Result<Option<ResponseData>, String> {
     // Build rune request data inside this non-async context
     let mut request_data = Object::new();
 
     // Convert strings to rune strings
-    let method_str = rune::alloc::String::try_from(method.as_str())
-        .map_err(|e| format!("Failed to allocate method string: {}", e))?;
-    let path_str = rune::alloc::String::try_from(path.as_str())
-        .map_err(|e| format!("Failed to allocate path string: {}", e))?;
-    let body_str = rune::alloc::String::try_from(body.as_str())
-        .map_err(|e| format!("Failed to allocate body string: {}", e))?;
+    let method_str = rune::alloc::String::try_from(method)
+        .map_err(|e| format!("Failed to allocate method string: {e}"))?;
+    let path_str = rune::alloc::String::try_from(path)
+        .map_err(|e| format!("Failed to allocate path string: {e}"))?;
+    let body_str = rune::alloc::String::try_from(body)
+        .map_err(|e| format!("Failed to allocate body string: {e}"))?;
 
     // Insert into object
     request_data
@@ -324,26 +320,26 @@ fn execute_and_parse_rune_script(
             rune::alloc::String::try_from("method").map_err(to_string)?,
             Value::new(method_str).map_err(to_string)?,
         )
-        .map_err(|e| format!("Failed to insert method: {}", e))?;
+        .map_err(|e| format!("Failed to insert method: {e}"))?;
 
     request_data
         .insert(
             rune::alloc::String::try_from("path").map_err(to_string)?,
             Value::new(path_str).map_err(to_string)?,
         )
-        .map_err(|e| format!("Failed to insert path: {}", e))?;
+        .map_err(|e| format!("Failed to insert path: {e}"))?;
 
     request_data
         .insert(
             rune::alloc::String::try_from("body").map_err(to_string)?,
             Value::new(body_str).map_err(to_string)?,
         )
-        .map_err(|e| format!("Failed to insert body: {}", e))?;
+        .map_err(|e| format!("Failed to insert body: {e}"))?;
 
     let request = Value::new(request_data).map_err(to_string)?;
 
     let (context, unit) =
-        load_script(&state.script_path).map_err(|e| format!("Failed to load script: {}", e))?;
+        load_script(&state.script_path).map_err(|e| format!("Failed to load script: {e}"))?;
 
     let mut vm = Vm::new(
         Arc::new(context.runtime().map_err(|e| e.to_string())?),
@@ -352,7 +348,7 @@ fn execute_and_parse_rune_script(
 
     let result = vm
         .call(rune::Hash::type_hash(["handle_request"]), (request,))
-        .map_err(|e| format!("Execution error: {}", e))?;
+        .map_err(|e| format!("Execution error: {e}"))?;
 
     // Check if unhandled
     if is_unhandled(&result) {
@@ -373,9 +369,9 @@ fn execute_and_parse_rune_script(
         ) {
             u16::try_from(
                 v.as_integer::<u64>()
-                    .map_err(|e| format!("Invalid status code: {}", e))?,
+                    .map_err(|e| format!("Invalid status code: {e}"))?,
             )
-            .map_err(|e| format!("Invalid status code: {}", e))?
+            .map_err(|e| format!("Invalid status code: {e}"))?
         } else {
             200
         };
@@ -386,7 +382,7 @@ fn execute_and_parse_rune_script(
                 .as_str(),
         ) {
             v.borrow_string_ref()
-                .map_err(|e| format!("Invalid body: {}", e))?
+                .map_err(|e| format!("Invalid body: {e}"))?
                 .to_string()
         } else {
             String::new()
