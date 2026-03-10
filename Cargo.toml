@@ -1,10 +1,13 @@
 [package]
 name = "mockbox"
+description = "A Rust-based HTTP mock server with scripting capabilities using Rune."
+license-file = "LICENSE"
 version = "0.1.0"
 edition = "2024"
+repository = "https://github.com/hardliner66/mockbox"
 
 [dependencies]
-axum = "0.7"
+axum = "0.8.8"
 tokio = { version = "1.50.0", features = ["full"] }
 rune = "0.14.1"
 reqwest = { version = "0.13.2", features = ["json"] }
