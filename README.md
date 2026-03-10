@@ -1,11 +1,11 @@
 # Mockbox
 
-A flexible HTTP proxy server powered by Rune scripting. Every incoming request is first handled by a Rune script, which can either respond directly or indicate that the request should be proxied to a fallback server.
+A flexible HTTP proxy server powered by Rune scripting. Every incoming request is first handled by a Rune script, which can either respond directly or indicate that the request should be proxied to an upstream server.
 
 ## Features
 
 - **Rune Scripting**: Handle HTTP requests with dynamic Rune scripts
-- **Fallback Proxy**: Automatically proxy unhandled requests to another web server
+- **Upstream Proxy**: Automatically proxy unhandled requests to another web server
 - **Hot-reloadable**: Modify scripts without restarting
 - **Full HTTP Support**: Access method, path, headers, and body in scripts
 
@@ -14,7 +14,7 @@ A flexible HTTP proxy server powered by Rune scripting. Every incoming request i
 1. Clone the repository
 2. Build the project:
 ```bash
-cargo install --path .
+cargo install mockbox
 ```
 
 ## Usage
@@ -79,7 +79,7 @@ pub fn handle_request(request) {
 }
 ```
 
-#### 3. Proxy to fallback server
+#### 3. Proxy to upstream server
 
 Return the string `"UNHANDLED"` to proxy the request:
 
@@ -176,9 +176,9 @@ pub fn handle_request(request) {
 2. **Rune Execution**: The `handle_request` function in `script.rn` is called
 3. **Response Decision**:
    - If the script returns a response object or string → respond directly
-   - If the script returns `"UNHANDLED"` → proxy to fallback server
-4. **Fallback Proxy**: Forward the original request to the configured fallback URL
-5. **Response**: Return the response from either Rune or the fallback server
+   - If the script returns `"UNHANDLED"` → proxy to upstream server
+4. **Upstream Proxy**: Forward the original request to the configured upstream URL
+5. **Response**: Return the response from either Rune or the upstream server
 
 ## Use Cases
 
@@ -195,6 +195,6 @@ Test your Rune scripts by making HTTP requests:
 # Test a mocked endpoint
 curl http://localhost:3000/hello
 
-# Test the fallback proxy
+# Test the upstream proxy
 curl http://localhost:3000/some/real/path
 ```

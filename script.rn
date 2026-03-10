@@ -36,7 +36,7 @@ pub fn _handle_request(request) {
             body: json::to_string(#{ "mocked": true, "path": path, "method": method })?,
         },
 
-        // Return UNHANDLED to proxy the request to the fallback server
+        // Return UNHANDLED to proxy the request to the upstream server
         _ => "UNHANDLED",
     }
 }

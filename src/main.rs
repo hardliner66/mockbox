@@ -177,9 +177,9 @@ async fn handle_with_rune(state: AppState, request: Request) -> Response {
             response.body(Body::from(response_data.body)).unwrap()
         }
         Ok(None) => {
-            // Proxy to fallback
-            info!("Rune script did not handle request, proxying to fallback");
-            proxy_to_fallback(state, method, uri, headers, body_bytes).await
+            // Proxy to upstream
+            info!("Rune script did not handle request, proxying to upstream");
+            proxy_to_upstream(state, method, uri, headers, body_bytes).await
         }
         Err(e) => {
             error!("Rune script execution failed: {}", e);
@@ -188,7 +188,7 @@ async fn handle_with_rune(state: AppState, request: Request) -> Response {
     }
 }
 
-async fn proxy_to_fallback(
+async fn proxy_to_upstream(
     state: AppState,
     method: Method,
     uri: Uri,
@@ -196,11 +196,11 @@ async fn proxy_to_fallback(
     body: Bytes,
 ) -> Response {
     let Some(upstream) = state.upstream else {
-        return (StatusCode::BAD_GATEWAY, "No fallback server configured").into_response();
+        return (StatusCode::BAD_GATEWAY, "No upstream server configured").into_response();
     };
-    let fallback_url = format!("{}{}", upstream, uri);
+    let upstream_url = format!("{}{}", upstream, uri);
 
-    info!("Proxying to: {}", fallback_url);
+    info!("Proxying to: {}", upstream_url);
 
     // Convert axum Method to reqwest Method
     let reqwest_method = match method.as_str() {
@@ -215,7 +215,7 @@ async fn proxy_to_fallback(
         _ => reqwest::Method::GET,
     };
 
-    let mut request_builder = state.http_client.request(reqwest_method, &fallback_url);
+    let mut request_builder = state.http_client.request(reqwest_method, &upstream_url);
 
     // Copy headers (excluding host and other problematic headers)
     for (key, value) in headers.iter() {
@@ -254,7 +254,7 @@ async fn proxy_to_fallback(
             error!("Failed to proxy request: {}", e);
             (
                 StatusCode::BAD_GATEWAY,
-                format!("Failed to reach fallback server: {}", e),
+                format!("Failed to reach upstream server: {}", e),
             )
                 .into_response()
         }
@@ -405,40 +405,3 @@ fn is_unhandled(value: &Value) -> bool {
     }
     false
 }
-
-// fn create_default_script() -> String {
-//     r#"
-// pub fn handle_request(request) {
-//     // Get request details
-//     let method = request.method;
-//     let path = request.path;
-//     let body = request.body;
-
-//     // Example: Handle specific endpoints
-//     if path == "/hello" {
-//         return #{
-//             status: 200,
-//             body: "Hello from Rune!"
-//         };
-//     }
-
-//     if path == "/echo" {
-//         return #{
-//             status: 200,
-//             body: `Echoing: ${body}`
-//         };
-//     }
-
-//     if path.starts_with("/api/mock") {
-//         return #{
-//             status: 200,
-//             body: `{"message": "Mocked response", "path": "${path}"}`
-//         };
-//     }
-
-//     // Return UNHANDLED to proxy to fallback server
-//     "UNHANDLED"
-// }
-// "#
-//     .to_string()
-// }
