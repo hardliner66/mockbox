@@ -1,0 +1,43 @@
+pub fn _handle_request(request) {
+    // Get request details
+    let method = request.method;
+    let path = request.path;
+    let body = request.body;
+
+    match path {
+        // Example: Simple greeting endpoint
+        "/hello" => #{ status: 200, body: "Hello from Rune!" },
+
+        // Example: Echo endpoint that returns the request body
+        "/echo" => #{ status: 200, body: `Echoing: ${body}` },
+
+        // Example: Mock API with JSON response
+        "/api/users" if method == "GET" => #{
+            status: 200,
+            body: json::to_string([#{ "id": 1, "name": "Alice" }, #{ "id": 2, "name": "Bob" }])?,
+        },
+
+        // Example: Mock authentication endpoint
+        "/api/login" if method == "POST" => #{
+            status: 200,
+            body: json::to_string(#{ "token": "mock-jwt-token-abc123", "user": "testuser" })?,
+        },
+
+        // Example: Simulate different HTTP status codes
+        "/error/404" => #{ status: 404, body: "Not Found" },
+        "/error/500" => #{ status: 500, body: "Internal Server Error" },
+
+        // Example: Simple string response (will be 200 OK)
+        "/ping" => #{ status: 200, body: "pong" },
+
+        // Example: Handle all paths under /api/mock
+        _ if path.starts_with("/api/mock") => #{
+            status: 200,
+            body: json::to_string(#{ "mocked": true, "path": path, "method": method })?,
+        },
+
+        // Return UNHANDLED to proxy the request to the fallback server
+        _ => "UNHANDLED",
+    }
+}
+
