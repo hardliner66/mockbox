@@ -114,7 +114,7 @@ async fn main() -> anyhow::Result<()> {
             tokio::process::Command::new("chmod")
                 .args(["777", listen.as_str()])
                 .spawn()?;
-            println!("listening on {}", listener.local_addr().unwrap());
+            println!("listening on {:?}", listener.local_addr().unwrap());
             axum::serve(listener, app).await?;
         }
         #[cfg(not(target_family = "unix"))]
@@ -136,7 +136,7 @@ async fn handle_with_rune(state: AppState, request: Request) -> Response {
     let uri = request.uri().clone();
     let headers = request.headers().clone();
 
-    info!("Handling request: {} {}", method, uri);
+    info!("Handling request: {method} {uri}");
 
     // Extract request body
     let body_bytes = match axum::body::to_bytes(request.into_body(), usize::MAX).await {
