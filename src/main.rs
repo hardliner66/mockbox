@@ -40,8 +40,14 @@ use clap::{Parser, Subcommand};
 struct Cli {
     #[clap(short, long, global = true, default_value = "127.0.0.1:3333")]
     listen: String,
-    #[clap(short, long, global = true, env = "MOCKBOX_UPSTREAM")]
+    #[clap(long, global = true, env = "MOCKBOX_UPSTREAM")]
     upstream: Option<String>,
+    #[clap(long, global = true, env = "MOCKBOX_ROOT_DIR")]
+    root_dir: Option<PathBuf>,
+    #[clap(short, long, global = true, env = "MOCKBOX_USER")]
+    user: Option<String>,
+    #[clap(short, long, global = true, env = "MOCKBOX_GROUP")]
+    group: Option<String>,
     #[command(subcommand)]
     mode: Mode,
 }
@@ -69,17 +75,49 @@ fn load_script(path: &PathBuf) -> Result<(Context, Unit), StatusCode> {
     Ok((context, unit))
 }
 
+#[cfg(not(target_family = "unix"))]
+fn drop_privileges(_root_dir: Option<PathBuf>, _user: Option<String>, _group: Option<String>) {}
+
+#[cfg(target_family = "unix")]
+fn drop_privileges(root_dir: Option<PathBuf>, user: Option<String>, group: Option<String>) {
+    use is_root::is_root;
+
+    if is_root() {
+        use privdrop::PrivDrop;
+
+        let mut builder = PrivDrop::default();
+        if let Some(root) = root_dir {
+            builder = builder.chroot(root);
+        }
+
+        if let Some(user) = user {
+            builder = builder.user(user);
+        }
+
+        if let Some(group) = group {
+            builder = builder.group(group);
+        }
+
+        builder
+            .apply()
+            .unwrap_or_else(|e| panic!("Failed to drop privileges: {}", e));
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let Cli {
         upstream,
         mode,
         listen,
+        root_dir,
+        user,
+        group,
     } = Cli::parse();
     // Initialize tracing
     tracing_subscriber::fmt::init();
 
-    info!("Starting Mockbox server...");
+    info!("Starting Mockbox...");
 
     let app = match mode {
         Mode::Log => Router::new().fallback(any(log_request)).into_make_service(),
@@ -106,6 +144,7 @@ async fn main() -> anyhow::Result<()> {
         Ok(addr) => {
             let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
             println!("listening on {}", listener.local_addr().unwrap());
+            drop_privileges(root_dir, user, group);
             axum::serve(listener, app).await?;
         }
         #[cfg(target_family = "unix")]
@@ -115,6 +154,7 @@ async fn main() -> anyhow::Result<()> {
                 .args(["777", listen.as_str()])
                 .spawn()?;
             println!("listening on {:?}", listener.local_addr().unwrap());
+            drop_privileges(root_dir, user, group);
             axum::serve(listener, app).await?;
         }
         #[cfg(not(target_family = "unix"))]
