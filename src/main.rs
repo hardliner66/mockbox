@@ -19,21 +19,46 @@ use rune::{
 use std::{fmt::Display, path::PathBuf, sync::Arc};
 use tracing::{error, info};
 
-struct AppState {
-    script_path: PathBuf,
+struct AppStateShared {
     http_client: Client,
     upstream: Option<String>,
 }
 
-impl Clone for AppState {
+impl Clone for AppStateShared {
     fn clone(&self) -> Self {
         Self {
-            script_path: self.script_path.clone(),
             http_client: self.http_client.clone(),
             upstream: self.upstream.clone(),
         }
     }
 }
+
+struct AppStateLog {
+    shared: AppStateShared,
+}
+
+impl Clone for AppStateLog {
+    fn clone(&self) -> Self {
+        Self {
+            shared: self.shared.clone(),
+        }
+    }
+}
+
+struct AppStateMock {
+    script_path: PathBuf,
+    shared: AppStateShared,
+}
+
+impl Clone for AppStateMock {
+    fn clone(&self) -> Self {
+        Self {
+            script_path: self.script_path.clone(),
+            shared: self.shared.clone(),
+        }
+    }
+}
+
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -135,17 +160,33 @@ async fn main() -> anyhow::Result<()> {
             println!("{}", include_str!("../script.rn"));
             return Ok(());
         }
-        Mode::Log => Router::new().fallback(any(log_request)).into_make_service(),
+        Mode::Log => {
+            let state = AppStateLog {
+                shared: AppStateShared {
+                    http_client: Client::new(),
+                    upstream,
+                },
+            };
+            let state_clone = state.clone();
+            Router::new()
+                .fallback(any(move |request: Request| {
+                    let state = state_clone.clone();
+                    async move { log_request(state, request).await }
+                }))
+                .into_make_service()
+        }
         Mode::Mock { script } => {
             // Create shared state
-            let state = AppState {
+            let state = AppStateMock {
                 script_path: script,
-                http_client: Client::new(),
-                upstream,
+                shared: AppStateShared {
+                    http_client: Client::new(),
+                    upstream,
+                },
             };
             // Build router using closure to capture state
             let state_clone = state.clone();
-            info!("Upstream URL: {:?}", state.upstream);
+            info!("Upstream URL: {:?}", state.shared.upstream);
             Router::new()
                 .fallback(any(move |request: Request| {
                     let state = state_clone.clone();
@@ -190,11 +231,30 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn log_request(req: Request) {
-    info!("{req:?}");
+async fn log_request(state: AppStateLog, request: Request) -> Response {
+    info!("{request:?}");
+
+    if state.shared.upstream.is_none() {
+        return (StatusCode::OK, "OK").into_response();
+    }
+
+    let method = request.method().clone();
+    let uri = request.uri().clone();
+    let headers = request.headers().clone();
+
+    // Extract request body
+    let body_bytes = match axum::body::to_bytes(request.into_body(), usize::MAX).await {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            error!("Failed to read request body: {e}");
+            return (StatusCode::BAD_REQUEST, "Failed to read request body").into_response();
+        }
+    };
+
+    proxy_to_upstream(state.shared, method, uri, headers, body_bytes).await
 }
 
-async fn handle_with_rune(state: AppState, request: Request) -> Response {
+async fn handle_with_rune(state: AppStateMock, request: Request) -> Response {
     let method = request.method().clone();
     let uri = request.uri().clone();
     let headers = request.headers().clone();
@@ -239,7 +299,7 @@ async fn handle_with_rune(state: AppState, request: Request) -> Response {
         Ok(None) => {
             // Proxy to upstream
             info!("Rune script did not handle request, proxying to upstream");
-            proxy_to_upstream(state, method, uri, headers, body_bytes).await
+            proxy_to_upstream(state.shared, method, uri, headers, body_bytes).await
         }
         Err(e) => {
             error!("Rune script execution failed: {e}");
@@ -249,7 +309,7 @@ async fn handle_with_rune(state: AppState, request: Request) -> Response {
 }
 
 async fn proxy_to_upstream(
-    state: AppState,
+    state: AppStateShared,
     method: Method,
     uri: Uri,
     headers: HeaderMap,
@@ -361,7 +421,7 @@ fn to_string<T: Display>(value: T) -> String {
 }
 
 fn execute_and_parse_rune_script(
-    state: &AppState,
+    state: &AppStateMock,
     method: &str,
     path: &str,
     body: &str,
