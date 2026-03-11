@@ -7,6 +7,7 @@ use axum::{
     routing::any,
 };
 use bytes::Bytes;
+use directories::ProjectDirs;
 use reqwest::Client;
 use rune::{
     Context, Diagnostics, Source, Sources, Vm,
@@ -16,7 +17,11 @@ use rune::{
     Unit,
     runtime::{Object, Value},
 };
-use std::{fmt::Display, path::PathBuf, sync::Arc};
+use std::{
+    fmt::Display,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use tracing::{error, info};
 
 struct AppStateShared {
@@ -46,7 +51,7 @@ impl Clone for AppStateLog {
 }
 
 struct AppStateMock {
-    script_path: PathBuf,
+    script_path: Option<PathBuf>,
     shared: AppStateShared,
 }
 
@@ -95,11 +100,12 @@ enum Mode {
     /// Run a Rune script for each request
     Mock {
         /// Path to the Rune script to execute for each request
-        script: PathBuf,
+        script: Option<PathBuf>,
     },
 }
 
-fn load_script(path: &PathBuf) -> Result<(Context, Unit), StatusCode> {
+fn load_script<P: AsRef<Path>>(path: P) -> Result<(Context, Unit), StatusCode> {
+    let path = path.as_ref();
     // Load rune script
     let Ok(script_content) = std::fs::read_to_string(path) else {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
@@ -157,7 +163,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = match mode {
         Mode::Example => {
-            println!("{}", include_str!("../script.rn"));
+            println!("{}", include_str!("../mockbox.rn"));
             return Ok(());
         }
         Mode::Log => {
@@ -466,8 +472,21 @@ fn execute_and_parse_rune_script(
 
     let request = Value::new(request_data).map_err(to_string)?;
 
-    let (context, unit) =
-        load_script(&state.script_path).map_err(|e| format!("Failed to load script: {e}"))?;
+    let (context, unit) = if let Some(path) = state.script_path.as_ref() {
+        load_script(path)
+    } else {
+        if std::fs::exists("./mockbox.rn").unwrap() {
+            load_script("./mockbox.rn")
+        } else {
+            load_script(
+                ProjectDirs::from("com", "hardliner66", "mockbox")
+                    .unwrap()
+                    .data_local_dir()
+                    .join("mockbox.rn"),
+            )
+        }
+    }
+    .map_err(|e| format!("Failed to load script: {e}"))?;
 
     let mut vm = Vm::new(
         Arc::new(context.runtime().map_err(|e| e.to_string())?),

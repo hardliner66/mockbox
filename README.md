@@ -21,30 +21,37 @@ cargo install mockbox
 
 ### Basic Setup
 
-1. Run the server:
+1. Generate the an example script:
 ```bash
-mockbox mock script.rn
+mockbox example > mockbox.rn
 ```
 
-2. The server will start on `http://0.0.0.0:3333`
+2. Run the server:
+```bash
+mockbox mock
+```
+
+If no script path is passed to mockbox, it will check for a file called `mockbox.rn` in the current directory and if it doesn't exist, it will check in `$HOME/.local/share/mockbox` for a `mockbox.rn`.
+
+3. The server will start on `http://127.0.0.1:3333`
 
 ### Configuration
 
 Configure the upstream server using the `MOCKBOX_UPSTREAM` environment variable:
 
 ```bash
-MOCKBOX_UPSTREAM=http://localhost:8080 mockbox mock script.rn
+MOCKBOX_UPSTREAM=http://localhost:8080 mockbox mock mockbox.rn
 ```
 
 or by using the appropriate cli option:
 
 ```bash
-mockbox mock script.rn --upstream http://localhost:8080
+mockbox mock mockbox.rn --upstream http://localhost:8080
 ```
 
 ## Rune Script API
 
-Your `script.rn` must export a `handle_request` function that receives a request object and returns either a response object or the string `"UNHANDLED"`.
+Your `mockbox.rn` must export a `handle_request` function that receives a request object and returns either a response object or the string `"UNHANDLED"`.
 
 ### Request Object
 
@@ -173,7 +180,7 @@ pub fn handle_request(request) {
 ## Architecture
 
 1. **Request Reception**: Axum receives the HTTP request
-2. **Rune Execution**: The `handle_request` function in `script.rn` is called
+2. **Rune Execution**: The `handle_request` function in `mockbox.rn` is called
 3. **Response Decision**:
    - If the script returns a response object or string → respond directly
    - If the script returns `"UNHANDLED"` → proxy to upstream server
