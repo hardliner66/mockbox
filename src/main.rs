@@ -38,25 +38,40 @@ use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 struct Cli {
+    /// Address to listen on
     #[clap(short, long, global = true, default_value = "127.0.0.1:3333")]
     listen: String,
+    /// Optional upstream server URL to proxy requests to if not handled by the script
     #[clap(long, global = true, env = "MOCKBOX_UPSTREAM")]
     upstream: Option<String>,
+    /// Optional root directory to chroot into (Unix only)
+    #[cfg(target_family = "unix")]
     #[clap(long, global = true, env = "MOCKBOX_ROOT_DIR")]
     root_dir: Option<PathBuf>,
+    /// Optional user to drop privileges to (Unix only)
+    #[cfg(target_family = "unix")]
     #[clap(short, long, global = true, env = "MOCKBOX_USER")]
     user: Option<String>,
+    /// Optional group to drop privileges to (Unix only)
+    #[cfg(target_family = "unix")]
     #[clap(short, long, global = true, env = "MOCKBOX_GROUP")]
     group: Option<String>,
+    /// Mode of operation
     #[command(subcommand)]
     mode: Mode,
 }
 
 #[derive(Subcommand)]
 enum Mode {
+    /// Print the example script and exit
     Example,
+    /// Log incoming requests without running a script
     Log,
-    Mock { script: PathBuf },
+    /// Run a Rune script for each request
+    Mock {
+        /// Path to the Rune script to execute for each request
+        script: PathBuf,
+    },
 }
 
 fn load_script(path: &PathBuf) -> Result<(Context, Unit), StatusCode> {
@@ -75,9 +90,6 @@ fn load_script(path: &PathBuf) -> Result<(Context, Unit), StatusCode> {
     };
     Ok((context, unit))
 }
-
-#[cfg(not(target_family = "unix"))]
-fn drop_privileges(_root_dir: Option<PathBuf>, _user: Option<String>, _group: Option<String>) {}
 
 #[cfg(target_family = "unix")]
 fn drop_privileges(root_dir: Option<PathBuf>, user: Option<String>, group: Option<String>) {
@@ -108,14 +120,15 @@ async fn main() -> anyhow::Result<()> {
         upstream,
         mode,
         listen,
+        #[cfg(target_family = "unix")]
         root_dir,
+        #[cfg(target_family = "unix")]
         user,
+        #[cfg(target_family = "unix")]
         group,
     } = Cli::parse();
     // Initialize tracing
     tracing_subscriber::fmt::init();
-
-    info!("Starting Mockbox...");
 
     let app = match mode {
         Mode::Example => {
@@ -142,11 +155,16 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
+    info!("Starting Mockbox...");
+
     match listen.parse::<std::net::SocketAddr>() {
         Ok(addr) => {
             let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
             println!("listening on {}", listener.local_addr().unwrap());
+
+            #[cfg(target_family = "unix")]
             drop_privileges(root_dir, user, group);
+
             axum::serve(listener, app).await?;
         }
         #[cfg(target_family = "unix")]
@@ -156,7 +174,10 @@ async fn main() -> anyhow::Result<()> {
                 .args(["777", listen.as_str()])
                 .spawn()?;
             println!("listening on {:?}", listener.local_addr().unwrap());
+
+            #[cfg(target_family = "unix")]
             drop_privileges(root_dir, user, group);
+
             axum::serve(listener, app).await?;
         }
         #[cfg(not(target_family = "unix"))]
