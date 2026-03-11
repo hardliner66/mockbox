@@ -318,7 +318,12 @@ async fn proxy_to_upstream(
     let Some(upstream) = state.upstream else {
         return (StatusCode::BAD_GATEWAY, "No upstream server configured").into_response();
     };
-    let upstream_url = format!("{upstream}{uri}");
+    let schema = if upstream.starts_with("http://") || upstream.starts_with("https://") {
+        ""
+    } else {
+        "http://"
+    };
+    let upstream_url = format!("{schema}{upstream}{uri}");
 
     info!("Proxying to: {upstream_url}");
 
@@ -370,7 +375,7 @@ async fn proxy_to_upstream(
             response.body(Body::from(body_bytes)).unwrap()
         }
         Err(e) => {
-            error!("Failed to proxy request: {e}");
+            error!("Failed to proxy request: {e:#?}");
             (
                 StatusCode::BAD_GATEWAY,
                 format!("Failed to reach upstream server: {e}"),
