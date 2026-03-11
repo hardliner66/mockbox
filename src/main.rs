@@ -54,6 +54,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Mode {
+    Example,
     Log,
     Mock { script: PathBuf },
 }
@@ -80,12 +81,8 @@ fn drop_privileges(_root_dir: Option<PathBuf>, _user: Option<String>, _group: Op
 
 #[cfg(target_family = "unix")]
 fn drop_privileges(root_dir: Option<PathBuf>, user: Option<String>, group: Option<String>) {
-    use is_root::is_root;
-
-    if is_root() {
-        use privdrop::PrivDrop;
-
-        let mut builder = PrivDrop::default();
+    if is_root::is_root() {
+        let mut builder = privdrop::PrivDrop::default();
         if let Some(root) = root_dir {
             builder = builder.chroot(root);
         }
@@ -99,8 +96,9 @@ fn drop_privileges(root_dir: Option<PathBuf>, user: Option<String>, group: Optio
         }
 
         builder
+            .fallback_to_ids_if_names_are_numeric()
             .apply()
-            .unwrap_or_else(|e| panic!("Failed to drop privileges: {}", e));
+            .unwrap_or_else(|e| panic!("Failed to drop privileges: {e}"));
     }
 }
 
@@ -120,6 +118,10 @@ async fn main() -> anyhow::Result<()> {
     info!("Starting Mockbox...");
 
     let app = match mode {
+        Mode::Example => {
+            println!("{}", include_str!("../script.rn"));
+            return Ok(());
+        }
         Mode::Log => Router::new().fallback(any(log_request)).into_make_service(),
         Mode::Mock { script } => {
             // Create shared state
