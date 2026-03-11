@@ -1,4 +1,4 @@
-pub fn _handle_request(request) {
+pub fn handle_request(request) {
     // Get request details
     let method = request.method;
     let path = request.path;
