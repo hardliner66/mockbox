@@ -26,7 +26,7 @@ cargo install mockbox
 mockbox mock script.rn
 ```
 
-2. The server will start on `http://0.0.0.0:333`
+2. The server will start on `http://0.0.0.0:3333`
 
 ### Configuration
 
@@ -193,8 +193,8 @@ Test your Rune scripts by making HTTP requests:
 
 ```bash
 # Test a mocked endpoint
-curl http://localhost:3000/hello
+curl http://localhost:3333/hello
 
 # Test the upstream proxy
-curl http://localhost:3000/some/real/path
+curl http://localhost:3333/some/real/path
 ```
