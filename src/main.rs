@@ -3,14 +3,14 @@ use axum::{
     body::Body,
     extract::Request,
     http::{HeaderMap, Method, StatusCode, Uri},
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Response as HttpResponse},
     routing::any,
 };
 use bytes::Bytes;
 use directories::ProjectDirs;
 use reqwest::Client;
 use rune::{
-    Context, Diagnostics, Source, Sources, Vm,
+    Context, ContextError, Diagnostics, Module, Source, Sources, Vm,
     termcolor::{ColorChoice, StandardStream},
 };
 use rune::{
@@ -237,7 +237,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn log_request(state: AppStateLog, request: Request) -> Response {
+async fn log_request(state: AppStateLog, request: Request) -> HttpResponse {
     info!("{request:?}");
 
     if state.shared.upstream.is_none() {
@@ -260,7 +260,7 @@ async fn log_request(state: AppStateLog, request: Request) -> Response {
     proxy_to_upstream(state.shared, method, uri, headers, body_bytes).await
 }
 
-async fn handle_with_rune(state: AppStateMock, request: Request) -> Response {
+async fn handle_with_rune(state: AppStateMock, request: Request) -> HttpResponse {
     let method = request.method().clone();
     let uri = request.uri().clone();
     let headers = request.headers().clone();
@@ -297,10 +297,13 @@ async fn handle_with_rune(state: AppStateMock, request: Request) -> Response {
     match result {
         Ok(Some(response_data)) => {
             // Build response from Send-safe data
-            let response = Response::builder()
+            let response = HttpResponse::builder()
                 .status(StatusCode::from_u16(response_data.status).unwrap_or(StatusCode::OK));
 
-            response.body(Body::from(response_data.body)).unwrap()
+            response
+                .header("Content-Type", response_data.mime_type.to_string())
+                .body(Body::from(response_data.body))
+                .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR.into_response())
         }
         Ok(None) => {
             // Proxy to upstream
@@ -320,7 +323,7 @@ async fn proxy_to_upstream(
     uri: Uri,
     headers: HeaderMap,
     body: Bytes,
-) -> Response {
+) -> HttpResponse {
     let Some(upstream) = state.upstream else {
         return (StatusCode::BAD_GATEWAY, "No upstream server configured").into_response();
     };
@@ -368,7 +371,7 @@ async fn proxy_to_upstream(
             let resp_headers = resp.headers().clone();
             let body_bytes = resp.bytes().await.unwrap_or_default();
 
-            let mut response = Response::builder()
+            let mut response = HttpResponse::builder()
                 .status(StatusCode::from_u16(status_code).unwrap_or(StatusCode::OK));
 
             // Copy response headers
@@ -392,8 +395,12 @@ async fn proxy_to_upstream(
 }
 
 fn compile_rune_script(script: &str) -> Result<(Context, rune::Unit), String> {
-    let context =
+    let mut context =
         rune_modules::default_context().map_err(|e| format!("Failed to create context: {e}"))?;
+
+    context
+        .install(module().map_err(to_string)?)
+        .map_err(to_string)?;
 
     let mut sources = Sources::new();
     sources
@@ -422,9 +429,25 @@ fn compile_rune_script(script: &str) -> Result<(Context, rune::Unit), String> {
 }
 
 #[derive(Debug)]
+enum MimeType {
+    TextPlain,
+    ApplicationJson,
+}
+
+impl ToString for MimeType {
+    fn to_string(&self) -> String {
+        match self {
+            MimeType::TextPlain => "text/plain".to_string(),
+            MimeType::ApplicationJson => "application/json".to_string(),
+        }
+    }
+}
+
+#[derive(Debug)]
 struct ResponseData {
     status: u16,
     body: String,
+    mime_type: MimeType,
 }
 
 fn to_string<T: Display>(value: T) -> String {
@@ -488,63 +511,64 @@ fn execute_and_parse_rune_script(
     }
     .map_err(|e| format!("Failed to load script: {e}"))?;
 
-    let mut vm = Vm::new(
-        Arc::new(context.runtime().map_err(|e| e.to_string())?),
-        Arc::new(unit),
-    );
+    let runtime = Arc::new(context.runtime().map_err(to_string)?);
+
+    let mut vm = Vm::new(runtime.clone(), Arc::new(unit));
 
     let result = vm
         .call(rune::Hash::type_hash(["handle_request"]), (request,))
         .map_err(|e| format!("Execution error: {e}"))?;
 
-    // Check if unhandled
-    if is_unhandled(&result) {
+    if let Ok(()) = rune::from_value(&result) {
         return Ok(None);
     }
 
-    if let Ok(str_ref) = result.borrow_string_ref() {
-        let body = str_ref.to_string();
-        return Ok(Some(ResponseData { status: 200, body }));
+    if let Ok((status, body)) = rune::from_value::<(u16, Value)>(&result) {
+        let response = if let Ok(body) = rune::from_value(&body) {
+            ResponseData {
+                status,
+                body,
+                mime_type: MimeType::TextPlain,
+            }
+        } else {
+            ResponseData {
+                status,
+                mime_type: MimeType::ApplicationJson,
+                body: serde_json::to_string(&body)
+                    .map_err(|e| format!("Failed to serialize response object: {e}"))?,
+            }
+        };
+        return Ok(Some(response));
+    }
+
+    if let Ok(body) = rune::from_value::<String>(&result) {
+        return Ok(Some(ResponseData {
+            status: 200,
+            body,
+            mime_type: MimeType::TextPlain,
+        }));
     }
 
     // Parse response
-    if let Ok(obj) = rune::from_value::<Object>(result) {
-        let status = if let Some(v) = obj.get(
-            rune::alloc::String::try_from("status")
-                .map_err(to_string)?
-                .as_str(),
-        ) {
-            u16::try_from(
-                v.as_integer::<u64>()
-                    .map_err(|e| format!("Invalid status code: {e}"))?,
-            )
-            .map_err(|e| format!("Invalid status code: {e}"))?
-        } else {
-            200
-        };
-
-        let body = if let Some(v) = obj.get(
-            rune::alloc::String::try_from("body")
-                .map_err(to_string)?
-                .as_str(),
-        ) {
-            v.borrow_string_ref()
-                .map_err(|e| format!("Invalid body: {e}"))?
-                .to_string()
-        } else {
-            String::new()
-        };
-
-        return Ok(Some(ResponseData { status, body }));
-    }
-
-    Err("Invalid response format from script".to_string())
+    return Ok(Some(ResponseData {
+        status: 200,
+        body: serde_json::to_string(&result)
+            .map_err(|e| format!("Invalid response object: {e}"))?,
+        mime_type: MimeType::ApplicationJson,
+    }));
 }
 
-fn is_unhandled(value: &Value) -> bool {
-    // Check if the value is the string "UNHANDLED" or null
-    if let Ok(str_ref) = value.borrow_string_ref() {
-        return str_ref.to_string() == "UNHANDLED";
-    }
-    false
+#[rune::function(instance)]
+fn parts(value: String) -> Vec<String> {
+    value
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .map(to_string)
+        .collect()
+}
+
+fn module() -> Result<Module, ContextError> {
+    let mut m = Module::new();
+    m.function_meta(parts)?;
+    Ok(m)
 }
