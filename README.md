@@ -11,6 +11,12 @@ A flexible HTTP proxy server powered by Rune scripting. Every incoming request i
 
 ## Installation
 
+### Pre-Built Binaries
+
+You can download pre-built binaries from the [latest release](https://github.com/hardliner66/mockbox/releases).
+
+### From Source
+
 1. Clone the repository
 2. Build the project:
 ```bash
