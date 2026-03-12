@@ -2,7 +2,7 @@
 name = "mockbox"
 description = "A Rust-based HTTP mock server with scripting capabilities using Rune."
 license-file = "LICENSE"
-version = "0.8.1"
+version = "0.9.0"
 edition = "2024"
 repository = "https://github.com/hardliner66/mockbox"
 
