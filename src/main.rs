@@ -18,6 +18,7 @@ use rune::{
     runtime::{Object, Value},
 };
 use std::{
+    collections::HashMap,
     fmt::Display,
     path::{Path, PathBuf},
     sync::Arc,
@@ -282,10 +283,22 @@ async fn handle_with_rune(state: AppStateMock, request: Request) -> HttpResponse
     // Pass simple strings instead of rune Values
     let method_string = method.as_str().to_string();
     let path_string = uri.path().to_string();
+    let query_map = uri.query().map(|q| {
+        q.split('&')
+            .flat_map(|p| p.split_once('='))
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .collect::<HashMap<String, String>>()
+    });
     let state_clone = state.clone();
 
     let result = tokio::task::spawn_blocking(move || {
-        execute_and_parse_rune_script(&state_clone, &method_string, &path_string, &body_string)
+        execute_and_parse_rune_script(
+            &state_clone,
+            &method_string,
+            &path_string,
+            &body_string,
+            query_map.unwrap_or_default(),
+        )
     })
     .await
     .unwrap_or_else(|e| {
@@ -459,6 +472,7 @@ fn execute_and_parse_rune_script(
     method: &str,
     path: &str,
     body: &str,
+    query: HashMap<String, String>,
 ) -> Result<Option<ResponseData>, String> {
     // Build rune request data inside this non-async context
     let mut request_data = Object::new();
@@ -475,21 +489,28 @@ fn execute_and_parse_rune_script(
     request_data
         .insert(
             rune::alloc::String::try_from("method").map_err(to_string)?,
-            Value::new(method_str).map_err(to_string)?,
+            rune::to_value(method_str).map_err(to_string)?,
         )
         .map_err(|e| format!("Failed to insert method: {e}"))?;
 
     request_data
         .insert(
             rune::alloc::String::try_from("path").map_err(to_string)?,
-            Value::new(path_str).map_err(to_string)?,
+            rune::to_value(path_str).map_err(to_string)?,
         )
         .map_err(|e| format!("Failed to insert path: {e}"))?;
 
     request_data
         .insert(
+            rune::alloc::String::try_from("query").map_err(to_string)?,
+            rune::to_value(query).map_err(to_string)?,
+        )
+        .map_err(|e| format!("Failed to insert body: {e}"))?;
+
+    request_data
+        .insert(
             rune::alloc::String::try_from("body").map_err(to_string)?,
-            Value::new(body_str).map_err(to_string)?,
+            rune::to_value(body_str).map_err(to_string)?,
         )
         .map_err(|e| format!("Failed to insert body: {e}"))?;
 
@@ -559,7 +580,7 @@ fn execute_and_parse_rune_script(
 }
 
 #[rune::function(instance)]
-fn parts(value: String) -> Vec<String> {
+fn parts(value: &str) -> Vec<String> {
     value
         .split('/')
         .filter(|s| !s.is_empty())

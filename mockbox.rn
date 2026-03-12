@@ -2,6 +2,7 @@ pub fn handle_request(request) {
     // Get request details
     let method = request.method;
     let path = request.path;
+    let query = request.query;
     let body = request.body;
 
     match path.parts() {
@@ -21,11 +22,12 @@ pub fn handle_request(request) {
         ["api", "login"] if method == "POST" => #{ "token": "mock-jwt-token-abc123", "user": "testuser" },
 
         // Example: Simulate different HTTP status codes
-        ["error", "404"] => (404, "Not Found" ),
+        ["error", "404"] => (404, "Not Found"),
         ["error", "500"] => (500, "Internal Server Error"),
 
         // Example: Handle all paths under /api/mock
-        ["api", "mock", ..] => #{ "mocked": true, "path": path, "method": method }
+        ["api", "mock", ..] => #{ mocked: true, path, method, query },
+
     }
     // if nothing is returned, it will be treated as unhandled and the request will be sent to the
     // upstream server, if it is configured
