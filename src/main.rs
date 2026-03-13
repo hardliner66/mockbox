@@ -1,3 +1,5 @@
+mod storage;
+
 use axum::{
     Router,
     body::Body,
@@ -23,6 +25,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
+use storage::Storage;
 use tracing::{error, info};
 
 struct AppStateShared {
@@ -54,6 +57,7 @@ impl Clone for AppStateLog {
 struct AppStateMock {
     script_path: Option<PathBuf>,
     shared: AppStateShared,
+    storage: Storage,
 }
 
 impl Clone for AppStateMock {
@@ -61,6 +65,7 @@ impl Clone for AppStateMock {
         Self {
             script_path: self.script_path.clone(),
             shared: self.shared.clone(),
+            storage: self.storage.clone(),
         }
     }
 }
@@ -105,7 +110,7 @@ enum Mode {
     },
 }
 
-fn load_script<P: AsRef<Path>>(path: P) -> Result<(Context, Unit), StatusCode> {
+fn load_script<P: AsRef<Path>>(path: P, storage: &Storage) -> Result<(Context, Unit), StatusCode> {
     let path = path.as_ref();
     // Load rune script
     let Ok(script_content) = std::fs::read_to_string(path) else {
@@ -113,7 +118,7 @@ fn load_script<P: AsRef<Path>>(path: P) -> Result<(Context, Unit), StatusCode> {
     };
 
     // Compile rune script
-    let (context, unit) = match compile_rune_script(&script_content) {
+    let (context, unit) = match compile_rune_script(&script_content, storage) {
         Ok(result) => result,
         Err(e) => {
             error!("Failed to compile rune script: {e}");
@@ -183,6 +188,8 @@ async fn main() -> anyhow::Result<()> {
                 .into_make_service()
         }
         Mode::Mock { script } => {
+            let storage = Storage::new();
+
             // Create shared state
             let state = AppStateMock {
                 script_path: script,
@@ -190,6 +197,7 @@ async fn main() -> anyhow::Result<()> {
                     http_client: Client::new(),
                     upstream,
                 },
+                storage,
             };
             // Build router using closure to capture state
             let state_clone = state.clone();
@@ -407,13 +415,20 @@ async fn proxy_to_upstream(
     }
 }
 
-fn compile_rune_script(script: &str) -> Result<(Context, rune::Unit), String> {
+fn compile_rune_script(script: &str, storage: &Storage) -> Result<(Context, rune::Unit), String> {
     let mut context =
         rune_modules::default_context().map_err(|e| format!("Failed to create context: {e}"))?;
 
     context
         .install(module().map_err(to_string)?)
         .map_err(to_string)?;
+
+    // Install storage module
+    let storage_module = storage::create_storage_module(storage)
+        .map_err(|e| format!("Failed to create storage module: {e}"))?;
+    context
+        .install(storage_module)
+        .map_err(|e| format!("Failed to install storage module: {e}"))?;
 
     let mut sources = Sources::new();
     sources
@@ -517,16 +532,17 @@ fn execute_and_parse_rune_script(
     let request = Value::new(request_data).map_err(to_string)?;
 
     let (context, unit) = if let Some(path) = state.script_path.as_ref() {
-        load_script(path)
+        load_script(path, &state.storage)
     } else {
         if std::fs::exists("./mockbox.rn").unwrap() {
-            load_script("./mockbox.rn")
+            load_script("./mockbox.rn", &state.storage)
         } else {
             load_script(
                 ProjectDirs::from("com", "hardliner66", "mockbox")
                     .unwrap()
                     .data_local_dir()
                     .join("mockbox.rn"),
+                &state.storage,
             )
         }
     }

@@ -19,6 +19,7 @@ You can download pre-built binaries from the [latest release](https://github.com
 
 1. Clone the repository
 2. Build the project:
+
 ```bash
 cargo install mockbox
 ```
@@ -28,11 +29,13 @@ cargo install mockbox
 ### Basic Setup
 
 1. Generate the an example script:
+
 ```bash
 mockbox example > mockbox.rn
 ```
 
 2. Run the server:
+
 ```bash
 mockbox mock
 ```
