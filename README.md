@@ -60,7 +60,7 @@ mockbox mock mockbox.rn --upstream http://localhost:8080
 
 ## Rune Script API
 
-Your `mockbox.rn` must export a `handle_request` function that receives a request object and returns either a response object or the string `"UNHANDLED"`.
+Your `mockbox.rn` must export a `handle_request` function that receives a request object and returns either a string, an object, a tuple (`(<statuscode>, <response>)`).
 
 ### Request Object
 
@@ -72,20 +72,7 @@ The request object passed to your handler contains:
 
 ### Response Options
 
-#### 1. Handle the request
-
-Return an object with `status` and `body` fields:
-
-```rs
-pub fn handle_request(request) {
-    #{
-        status: 200,
-        body: "Hello, World!"
-    }
-}
-```
-
-#### 2. Return a simple string
+#### 1. Return a simple string
 
 Return just a string for a 200 OK response:
 
@@ -95,13 +82,35 @@ pub fn handle_request(request) {
 }
 ```
 
-#### 3. Proxy to upstream server
+#### 2. Return an object
 
-Return the string `"UNHANDLED"` to proxy the request:
+Return an object for a 200 OK response:
 
 ```rs
 pub fn handle_request(request) {
-    "UNHANDLED"
+    #{some: 1, values: 2}
+}
+```
+
+The object will automatically be converted to json.
+
+#### 3. Return status and response
+
+Return a tuple with `status` and `response` (string or object):
+
+```rs
+pub fn handle_request(request) {
+    (200, "Hello, World!")
+}
+```
+
+#### 4. Proxy to upstream server
+
+Explicitly return nothing to proxy the request:
+
+```rs
+pub fn handle_request(request) {
+    ()
 }
 ```
 
@@ -117,20 +126,13 @@ pub fn handle_request(request) {
     // Mock user API
     match path {
         "/api/users" if method == "GET" => {
-            #{
-                status: 200,
-                body: json::to_string([#{ "id": 1, "name": "John" }, #{ "id": 2, "name": "Jane" }])?,
-            }
+            [#{ "id": 1, "name": "John" }, #{ "id": 2, "name": "Jane" }]
         }
 
         // Mock authentication
         "/api/login" if method == "POST" => {
-            #{ status: 200, body: json::to_string(#{ "token": "mock-jwt-token-12345" })? }
+            #{ "token": "mock-jwt-token-12345" }
         }
-
-        // Proxy everything else
-        _ => "UNHANDLED",
-
     }
 }
 ```
@@ -143,13 +145,10 @@ pub fn handle_request(request) {
 
     match path {
         // Echo endpoint
-        "/echo" => #{ status: 200, body: request.body },
+        "/echo" => request.body,
 
         // Handle all /mock/* routes
-        _ if path.starts_with("/mock/") => #{ status: 200, body: `{"mocked": true, "path": "${path}"}` },
-
-        // Default: proxy to real server
-        _ => "UNHANDLED",
+        _ if path.starts_with("/mock/") => #{mocked: true, path: path},
     }
 }
 ```
@@ -163,11 +162,8 @@ pub fn handle_request(request) {
 
     // Mock only if body contains "test"
     if body.contains("test") {
-        return #{ status: 200, body: json::to_string(#{ "message": "Test mode response" })? };
+        return #{ "message": "Test mode response" };
     }
-
-    // Otherwise use real backend
-    "UNHANDLED"
 }
 ```
 
@@ -179,9 +175,8 @@ pub fn handle_request(request) {
 
     // Simulate errors for testing
     match path {
-        "/error/500" => #{ status: 500, body: "Internal Server Error" },
-        "/error/404" => #{ status: 404, body: "Not Found" },
-        _ => "UNHANDLED",
+        "/error/500" => (500, "Internal Server Error"),
+        "/error/404" => (404, "Not Found"),
     }
 }
 ```
@@ -191,8 +186,8 @@ pub fn handle_request(request) {
 1. **Request Reception**: Axum receives the HTTP request
 2. **Rune Execution**: The `handle_request` function in `mockbox.rn` is called
 3. **Response Decision**:
-   - If the script returns a response object or string → respond directly
-   - If the script returns `"UNHANDLED"` → proxy to upstream server
+   - If the script returns a string, object or response tuple → respond directly
+   - If the script doesn't return anything or explicitly returns `()` → proxy to upstream server
 4. **Upstream Proxy**: Forward the original request to the configured upstream URL
 5. **Response**: Return the response from either Rune or the upstream server
 
@@ -213,4 +208,30 @@ curl http://localhost:3333/hello
 
 # Test the upstream proxy
 curl http://localhost:3333/some/real/path
+```
+
+## Optional Features
+### `storage`
+Enables the storage API to persist data between requests.
+
+_This is disabled by default, because it currently uses a blocking `RwLock` to synchronize access._
+
+```rs
+// store a rune value
+storage::set(key, value)
+
+// load a stored value
+storage::get(key)
+
+// delete a stored value
+storage::delete(key)
+
+// check if a value exists
+storage::has(key)
+
+// clear the whole storage
+storage::clear()
+
+// get keys of all stored values
+storage::keys()
 ```

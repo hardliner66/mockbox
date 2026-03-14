@@ -1,11 +1,11 @@
-use rune::{Any, ContextError, Module, Value};
+use rune::{ContextError, Module, Value};
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
 };
 
 /// A thread-safe persistent key-value store
-#[derive(Any, Clone)]
+#[derive(Clone)]
 pub struct Storage {
     db: Arc<RwLock<HashMap<String, serde_json::Value>>>,
 }
@@ -79,9 +79,7 @@ impl Storage {
 
 /// Create a Rune module for the storage functionality
 pub fn create_storage_module(storage: &Storage) -> Result<Module, ContextError> {
-    let mut module = Module::new();
-
-    module.ty::<Storage>()?;
+    let mut module = Module::with_item(["storage"])?;
 
     // Register functions
     {
@@ -117,6 +115,16 @@ pub fn create_storage_module(storage: &Storage) -> Result<Module, ContextError> 
     {
         let storage = storage.clone();
         module.function("keys", move || storage.keys()).build()?;
+    }
+    {
+        let storage = storage.clone();
+        module.function("len", move || storage.len()).build()?;
+    }
+    {
+        let storage = storage.clone();
+        module
+            .function("is_empty", move || storage.is_empty())
+            .build()?;
     }
 
     Ok(module)
