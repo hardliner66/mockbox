@@ -1,3 +1,4 @@
+#[cfg(feature = "storage")]
 mod storage;
 
 use axum::{
@@ -25,6 +26,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
+#[cfg(feature = "storage")]
 use storage::Storage;
 use tracing::{error, info};
 
@@ -57,7 +59,79 @@ impl Clone for AppStateLog {
 struct AppStateMock {
     script_path: Option<PathBuf>,
     shared: AppStateShared,
+    #[cfg(feature = "storage")]
     storage: Storage,
+}
+
+impl AppStateMock {
+    fn new(script_path: Option<PathBuf>, shared: AppStateShared) -> Self {
+        Self {
+            script_path,
+            shared,
+            #[cfg(feature = "storage")]
+            storage: Storage::new(),
+        }
+    }
+    fn load_script<P: AsRef<Path>>(&self, path: P) -> Result<(Context, Unit), StatusCode> {
+        let path = path.as_ref();
+        // Load rune script
+        let Ok(script_content) = std::fs::read_to_string(path) else {
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        };
+
+        // Compile rune script
+        let (context, unit) = match self.compile_rune_script(&script_content) {
+            Ok(result) => result,
+            Err(e) => {
+                error!("Failed to compile rune script: {e}");
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+        };
+        Ok((context, unit))
+    }
+    fn compile_rune_script(&self, script: &str) -> Result<(Context, rune::Unit), String> {
+        let mut context = rune_modules::default_context()
+            .map_err(|e| format!("Failed to create context: {e}"))?;
+
+        context
+            .install(module().map_err(to_string)?)
+            .map_err(to_string)?;
+
+        // Install storage module
+        #[cfg(feature = "storage")]
+        {
+            let storage_module = storage::create_storage_module(&self.storage)
+                .map_err(|e| format!("Failed to create storage module: {e}"))?;
+            context
+                .install(storage_module)
+                .map_err(|e| format!("Failed to install storage module: {e}"))?;
+        }
+
+        let mut sources = Sources::new();
+        sources
+            .insert(Source::memory(script).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+
+        let mut diagnostics = Diagnostics::new();
+
+        let result = rune::prepare(&mut sources)
+            .with_context(&context)
+            .with_diagnostics(&mut diagnostics)
+            .build();
+
+        if !diagnostics.is_empty() {
+            let mut writer = StandardStream::stderr(ColorChoice::Always);
+            diagnostics
+                .emit(&mut writer, &sources)
+                .map_err(|e| format!("Failed to emit diagnostics: {e}"))?;
+
+            return Err("Script compilation failed".to_string());
+        }
+
+        let unit = result.map_err(|e| format!("Build failed: {e}"))?;
+
+        Ok((context, unit))
+    }
 }
 
 impl Clone for AppStateMock {
@@ -65,6 +139,7 @@ impl Clone for AppStateMock {
         Self {
             script_path: self.script_path.clone(),
             shared: self.shared.clone(),
+            #[cfg(feature = "storage")]
             storage: self.storage.clone(),
         }
     }
@@ -108,24 +183,6 @@ enum Mode {
         /// Path to the Rune script to execute for each request
         script: Option<PathBuf>,
     },
-}
-
-fn load_script<P: AsRef<Path>>(path: P, storage: &Storage) -> Result<(Context, Unit), StatusCode> {
-    let path = path.as_ref();
-    // Load rune script
-    let Ok(script_content) = std::fs::read_to_string(path) else {
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
-    };
-
-    // Compile rune script
-    let (context, unit) = match compile_rune_script(&script_content, storage) {
-        Ok(result) => result,
-        Err(e) => {
-            error!("Failed to compile rune script: {e}");
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
-        }
-    };
-    Ok((context, unit))
 }
 
 #[cfg(target_family = "unix")]
@@ -188,17 +245,14 @@ async fn main() -> anyhow::Result<()> {
                 .into_make_service()
         }
         Mode::Mock { script } => {
-            let storage = Storage::new();
-
             // Create shared state
-            let state = AppStateMock {
-                script_path: script,
-                shared: AppStateShared {
+            let state = AppStateMock::new(
+                script,
+                AppStateShared {
                     http_client: Client::new(),
                     upstream,
                 },
-                storage,
-            };
+            );
             // Build router using closure to capture state
             let state_clone = state.clone();
             info!("Upstream URL: {:?}", state.shared.upstream);
@@ -415,47 +469,6 @@ async fn proxy_to_upstream(
     }
 }
 
-fn compile_rune_script(script: &str, storage: &Storage) -> Result<(Context, rune::Unit), String> {
-    let mut context =
-        rune_modules::default_context().map_err(|e| format!("Failed to create context: {e}"))?;
-
-    context
-        .install(module().map_err(to_string)?)
-        .map_err(to_string)?;
-
-    // Install storage module
-    let storage_module = storage::create_storage_module(storage)
-        .map_err(|e| format!("Failed to create storage module: {e}"))?;
-    context
-        .install(storage_module)
-        .map_err(|e| format!("Failed to install storage module: {e}"))?;
-
-    let mut sources = Sources::new();
-    sources
-        .insert(Source::memory(script).map_err(|e| e.to_string())?)
-        .map_err(|e| e.to_string())?;
-
-    let mut diagnostics = Diagnostics::new();
-
-    let result = rune::prepare(&mut sources)
-        .with_context(&context)
-        .with_diagnostics(&mut diagnostics)
-        .build();
-
-    if !diagnostics.is_empty() {
-        let mut writer = StandardStream::stderr(ColorChoice::Always);
-        diagnostics
-            .emit(&mut writer, &sources)
-            .map_err(|e| format!("Failed to emit diagnostics: {e}"))?;
-
-        return Err("Script compilation failed".to_string());
-    }
-
-    let unit = result.map_err(|e| format!("Build failed: {e}"))?;
-
-    Ok((context, unit))
-}
-
 #[derive(Debug)]
 enum MimeType {
     TextPlain,
@@ -532,17 +545,16 @@ fn execute_and_parse_rune_script(
     let request = Value::new(request_data).map_err(to_string)?;
 
     let (context, unit) = if let Some(path) = state.script_path.as_ref() {
-        load_script(path, &state.storage)
+        state.load_script(path)
     } else {
         if std::fs::exists("./mockbox.rn").unwrap() {
-            load_script("./mockbox.rn", &state.storage)
+            state.load_script("./mockbox.rn")
         } else {
-            load_script(
+            state.load_script(
                 ProjectDirs::from("com", "hardliner66", "mockbox")
                     .unwrap()
                     .data_local_dir()
                     .join("mockbox.rn"),
-                &state.storage,
             )
         }
     }
@@ -606,6 +618,15 @@ fn parts(value: &str) -> Vec<String> {
 
 fn module() -> Result<Module, ContextError> {
     let mut m = Module::new();
+    m.function("cfg", |key: &str| {
+        if cfg!(feature = "storage") {
+            if key == "storage" {
+                return true;
+            }
+        }
+        false
+    })
+    .build()?;
     m.function_meta(parts)?;
     Ok(m)
 }
