@@ -28,10 +28,11 @@ A flexible HTTP proxy server powered by [Rune scripting](https://rune-rs.github.
   - [Testing](#testing)
 - [Features](#features-1)
   - [`storage`](#storage)
-    - [API](#api)
-    - [Example](#example)
-  - [`rng`](#rng)
+    - [Storage API](#storage-api)
+    - [Storage Example](#storage-example)
   - [`spec`](#spec)
+    - [Spec API](#spec-api)
+    - [Spec Example](#spec-example)
 
 ## Features
 
@@ -65,7 +66,7 @@ cargo install mockbox
 
 ### Basic Setup
 
-1. Generate the an example script:
+1. Generate the an example script ([online version](./mockbox.rn)):
 
 ```bash
 mockbox example > mockbox.rn
@@ -243,10 +244,10 @@ Test your Rune scripts by making HTTP requests:
 
 ```bash
 # Test a mocked endpoint
-curl http://localhost:3333/hello
+curl http://localhost:3333/demo
 
 # Test the upstream proxy
-curl http://localhost:3333/some/real/path
+curl http://localhost:3333/some/unhandled/path
 ```
 
 ## Features
@@ -257,7 +258,7 @@ Enables the storage API to persist data between requests.
 
 _This is **enabled** by default_
 
-#### API
+#### Storage API
 
 ```rs
 // store a rune value
@@ -279,134 +280,15 @@ storage::clear() -> Result<()>;
 storage::keys() -> Result<()>;
 ```
 
-#### Example
+#### Storage Example
 
 ```rs
-```
-
-### `rng`
-
-Enables the rng API to create random values.
-
-_This is **enabled** by default_
-
-```rs
-// choose one of the passed values at random
-rng::choose(values: &[rune::Value]) -> rune::Value;
-
-// choose <count> number from the passed values at random
-rng::choose_many(values: &[rune::Value], count: usize) -> Vec<rune::Value>;
-
-// alias for choose_many
-rng::sample(values: &[rune::Value], count: usize) -> Vec<rune::Value>;
-
-// get a random value between <start> and <end> (exclusive)
-rng::range(start: usize, end: usize) -> usize;
-
-// get <count> random values between <start> and <end> (exclusive)
-rng::range_many(start: usize, end: usize, count: usize) -> Vec<usize>;
-
-// get a random char value between <start> and <end> (exclusive)
-rng::range_char(start: char, end: char) -> char;
-
-// get <count> random char values between <start> and <end> (exclusive)
-rng::range_char_many(start: char, end: char, count: usize) -> Vec<char>;
-
-// get a random value between <start> and <end> (inclusive)
-rng::range_inclusive(start: usize, end: usize) -> usize;
-
-// get <count> random values between <start> and <end> (inclusive)
-rng::range_inclusive_many(start: usize, end: usize, count: usize) -> Vec<usize>
-
-// get a random char value between <start> and <end> (inclusive)
-rng::range_char_inclusive(start: char, end: char) -> char;
-
-// get <count> random char values between <start> and <end> (inclusive)
-rng::range_char_inclusive_many(start: char, end: char, count: usize) -> Vec<char>
-
-// get a random alpha numeric characters
-rng::alpha_numeric() -> char;
-
-// get <count> random alpha numeric numbers
-rng::alpha_numeric_many(count: usize) -> Vec<char>;
-
-// get a random bool
-rng::bool() -> bool
-
-// get a random u8 value
-rng::u8() -> u8;
-
-// get a random u16 value
-rng::u16() -> u16;
-
-// get a random u32 value
-rng::u32() -> u32;
-
-// get a random u64 value
-rng::u64() -> u64;
-
-// get a random u128 value
-rng::u128() -> u128;
-
-// get a random i8 value
-rng::i8() -> i8;
-
-// get a random i16 value
-rng::i16() -> i16;
-
-// get a random i32 value
-rng::i32() -> i32;
-
-// get a random i64 value
-rng::i64() -> i64;
-
-// get a random i128 value
-rng::i128() -> i128;
-
-// get a random f32 value
-rng::f32() -> f32;
-
-// get a random f64 value
-rng::f64() -> f64;
-
-// get <count> random bool values
-rng::bool_many(count: usize) -> Vec<bool>;
-
-// get <count> random u8 values
-rng::u8_many()count: usize -> Vec<u8>;
-
-// get <count> random u16 values
-rng::u16_many(count: usize) -> Vec<u16>;
-
-// get <count> random u32 values
-rng::u32_many(count: usize) -> Vec<u32>;
-
-// get <count> random u64 values
-rng::u64_many(count: usize) -> Vec<u64>;
-
-// get <count> random u128 values
-rng::u128_many(count: usize) -> Vec<u128>;
-
-// get <count> random i8 values
-rng::i8_many(count: usize) -> Vec<i8>;
-
-// get <count> random i16 values
-rng::i16_many(count: usize) -> Vec<i16>;
-
-// get <count> random i32 values
-rng::i32_many(count: usize) -> Vec<i32>;
-
-// get <count> random i64 values
-rng::i64_many(count: usize) -> Vec<i64>;
-
-// get <count> random i128 values
-rng::i128_many(count: usize) -> Vec<i128>;
-
-// get <count> random f32 values
-rng::f32_many(count: usize) -> Vec<f32>;
-
-// get <count> random f64 values
-rng::f64_many(count: usize) -> Vec<f64>;
+["demo"] => {
+    let demo_count = storage::get("demo_count")?.unwrap_or(0);
+    let new_demo_count = demo_count + 1;
+    storage::set("demo_count", new_demo_count)?;
+    #{ message: `This demo endpoint has been called ${new_demo_count} times` }
+},
 ```
 
 ### `spec`
@@ -414,6 +296,8 @@ rng::f64_many(count: usize) -> Vec<f64>;
 Enables the spec API to build descriptions for generating random data.
 
 _This is **enabled** by default_
+
+#### Spec API
 
 ```rs
 // creates a spec that evaluates to the passed value
@@ -457,4 +341,28 @@ spec::tuple(items: Vec<Spec>) -> Spec;
 
 // evaluates a given spec
 Spec::generate(&self) -> Result<rune::Value>;
+```
+
+#### Spec Example
+
+```rs
+use spec as s;
+
+match path.parts() {
+    ["demo"] => object(
+            #{
+                asdf: s::uint(1, 10),
+                values: s::array(s::just(5), s::float(55.0, 128.0)),
+                choice: s::one_of(
+                    [
+                        s::object(#{ A: s::uint(100, 200) }),
+                        s::object(#{ B: s::int(-100, 100) }),
+                        s::object(#{ C: s::float(0.5, 2.5) }),
+                        s::object(#{ D: s::alphanumeric(s::just(10)) }),
+                    ],
+                ),
+            },
+        )
+        .generate()?,
+}
 ```

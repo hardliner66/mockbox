@@ -71,7 +71,7 @@ impl Storage {
 }
 
 /// Create a Rune module for the storage functionality
-pub fn create_storage_module(storage: &Storage) -> Result<Module, ContextError> {
+pub fn storage_module(storage: &Storage) -> Result<Module, ContextError> {
     let mut module = Module::with_item(["storage"])?;
 
     // Register functions

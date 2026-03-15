@@ -1,15 +1,18 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use rand::{RngExt, seq::IndexedRandom};
-use rune::{Any, ContextError, Module, Value, runtime::RuntimeError};
+use rune::{
+    Any, ContextError, Module, Value,
+    alloc::String as RuneString,
+    runtime::{Object, RuntimeError},
+};
 
 use crate::helper::to_string;
 
 #[derive(Any, Debug)]
 enum Spec {
-    Just(Value),
-
     Bool,
+    Just(Value),
 
     UInt {
         min: u128,
@@ -40,7 +43,7 @@ enum Spec {
         len: Box<Spec>,
         item: Box<Spec>,
     },
-    Object(HashMap<String, Spec>),
+    Object(BTreeMap<RuneString, Spec>),
     Optional {
         p: Box<Spec>,
         item: Box<Spec>,
@@ -50,6 +53,11 @@ enum Spec {
 
 #[rune::function]
 fn just(value: Value) -> Spec {
+    Spec::Just(value)
+}
+
+#[rune::function]
+fn literal(value: Value) -> Spec {
     Spec::Just(value)
 }
 
@@ -106,8 +114,8 @@ fn array(len: Spec, item: Spec) -> Spec {
 }
 
 #[rune::function]
-fn object(fields: HashMap<String, Spec>) -> Spec {
-    Spec::Object(fields)
+fn object(fields: HashMap<RuneString, Spec>) -> Spec {
+    Spec::Object(BTreeMap::from_iter(fields))
 }
 
 #[rune::function]
@@ -121,6 +129,14 @@ fn optional(p: Spec, item: Spec) -> Spec {
 #[rune::function]
 fn tuple(items: Vec<Spec>) -> Spec {
     Spec::Tuple(items)
+}
+
+fn clone_rune_string(s: &RuneString) -> Result<RuneString, RuntimeError> {
+    let mut new_str = RuneString::new();
+    new_str
+        .try_push_str(s.as_str())
+        .map_err(|e| RuntimeError::panic(e.to_string()))?;
+    Ok(new_str)
 }
 
 fn generate_impl(this: &Spec) -> Result<Value, RuntimeError> {
@@ -153,13 +169,14 @@ fn generate_impl(this: &Spec) -> Result<Value, RuntimeError> {
                 .map(|_| generate_impl(item))
                 .collect::<Result<Vec<Value>, RuntimeError>>()?,
         ),
-        Spec::Object(fields) => rune::to_value(
-            fields
-                .iter()
-                .map(|(k, spec)| Ok((k.to_owned(), generate_impl(spec)?)))
-                .collect::<Result<HashMap<String, Value>, RuntimeError>>()
-                .map_err(|e| RuntimeError::panic(e.to_string()))?,
-        ),
+        Spec::Object(fields) => {
+            // "hack" to get consistent ordering, because BTreeMap can't be used directly in Rune
+            let mut obj = Object::with_capacity(fields.len())?;
+            for (k, v) in fields {
+                obj.insert(clone_rune_string(k)?, generate_impl(v)?)?;
+            }
+            rune::to_value(obj)
+        }
         Spec::Optional { p, item } => {
             let mut rng = rand::rng();
             rune::to_value(

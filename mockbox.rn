@@ -13,10 +13,15 @@ pub fn handle_request(request) {
         ["echo"] => body,
 
         // Example: Mock API with JSON response
-        ["api", "users"] if method == "GET" => [#{ "id": 1, "name": "Alice" }, #{ "id": 2, "name": "Bob" }],
+        ["api", "users"] => [ #{ "id": 1, "name": "Alice" }
+                            , #{ "id": 2, "name": "Bob" }
+                            ],
 
         // Example: Mock authentication endpoint
-        ["api", "login"] if method == "POST" => #{ "token": "mock-jwt-token-abc123", "user": "test_user" },
+        ["api", "login"] if method == "POST" =>
+            #{ "token": "mock-jwt-token-abc123"
+             , "user": "test_user"
+             },
 
         // Example: Simulate different HTTP status codes
         ["error", "404"] => (404, "Not Found"),
@@ -24,6 +29,12 @@ pub fn handle_request(request) {
 
         // Example: Handle all paths under /api/mock
         ["api", "mock", ..] => #{ mocked: true, path, method, query },
+
+        // Example: Mock API with JSON response
+        ["demo"] => [
+            #{ id: 1, name: "Alice" },
+            #{ id: 2, name: "Bob", details: #{ "age": 30, "city": "New York" } },
+        ],
     }
     // if nothing is returned, it will be treated as unhandled and the request will be sent to the
     // upstream server, if it is configured
