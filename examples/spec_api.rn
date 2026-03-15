@@ -17,8 +17,9 @@ pub fn handle_request(request) {
             values: array(just(5), float(55.0, 128.0)),
             choice: one_of([
                 object(#{ A: uint(100, 200) }),
-                object(#{ B: float(0.5, 2.5) }),
-                object(#{ C: alphanumeric(10) }),
+                object(#{ B: int(-100, 100) }),
+                object(#{ C: float(0.5, 2.5) }),
+                object(#{ D: alphanumeric(10) }),
             ])
         }).generate()?,
     }

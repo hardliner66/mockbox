@@ -369,7 +369,7 @@ rng::f64_many(count: usize) -> Vec<f64>;
 
 Enables the spec API to build descriptions for generating random data.
 
-_This is **not enabled** by default_
+_This is **enabled** by default_
 
 ```rs
 // creates a spec that evaluates to the passed value
