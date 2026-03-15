@@ -2,7 +2,7 @@
 //
 // This script only compiles if the "spec" feature is enabled in Cargo.toml.
 
-use spec::{object, just, array, one_of, u32, f32, string};
+use spec::{object, just, array, one_of, int, uint, float, alphanumeric};
 
 pub fn handle_request(request) {
     let path = request.path;
@@ -15,7 +15,7 @@ pub fn handle_request(request) {
                 object(#{ A: uint(100, 200) }),
                 object(#{ B: int(-100, 100) }),
                 object(#{ C: float(0.5, 2.5) }),
-                object(#{ D: alphanumeric(10) }),
+                object(#{ D: alphanumeric(just(10)) }),
             ])
         }).generate()?,
     }
