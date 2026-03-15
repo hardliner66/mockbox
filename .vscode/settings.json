@@ -1,8 +1,23 @@
 {
+    "markdown.extension.toc.levels": "2..6",
+    "markdown.extension.toc.omittedFromToc": {
+        "README.md": [
+            "## Table of Contents"
+        ]
+    },
     "[rune]": {
         "editor.formatOnSave": false
     },
     "cSpell.words": [
+        "binstall",
+        "mockbox",
+        "msvc",
+        "privdrop",
+        "reloadable",
+        "reqwest",
+        "rustup",
+        "serde",
+        "softprops",
         "usize"
     ]
 }

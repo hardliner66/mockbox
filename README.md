@@ -2,6 +2,37 @@
 
 A flexible HTTP proxy server powered by [Rune scripting](https://rune-rs.github.io/). Every incoming request is first handled by a Rune script, which can either respond directly or indicate that the request should be proxied to an upstream server.
 
+## Table of Contents
+- [Features](#features)
+- [Installation](#installation)
+  - [Pre-Built Binaries (via cargo-binstall)](#pre-built-binaries-via-cargo-binstall)
+  - [Pre-Built Binaries (manual download)](#pre-built-binaries-manual-download)
+  - [From Source](#from-source)
+- [Usage](#usage)
+  - [Basic Setup](#basic-setup)
+  - [Configuration](#configuration)
+- [Rune Script API](#rune-script-api)
+  - [Request Object](#request-object)
+  - [Response Options](#response-options)
+    - [1. Return a simple string](#1-return-a-simple-string)
+    - [2. Return an object](#2-return-an-object)
+    - [3. Return status and response](#3-return-status-and-response)
+    - [4. Proxy to upstream server](#4-proxy-to-upstream-server)
+- [Example Scripts](#example-scripts)
+  - [Mock API Endpoints](#mock-api-endpoints)
+  - [Route-based Handling](#route-based-handling)
+  - [Conditional Mocking](#conditional-mocking)
+  - [Error Responses](#error-responses)
+- [Architecture](#architecture)
+- [Use Cases](#use-cases)
+  - [Testing](#testing)
+- [Features](#features-1)
+  - [`storage`](#storage)
+    - [API](#api)
+    - [Example](#example)
+  - [`rng`](#rng)
+  - [`spec`](#spec)
+
 ## Features
 
 - **Rune Scripting**: Handle HTTP requests with dynamic Rune scripts
@@ -11,7 +42,13 @@ A flexible HTTP proxy server powered by [Rune scripting](https://rune-rs.github.
 
 ## Installation
 
-### Pre-Built Binaries
+### Pre-Built Binaries (via [cargo-binstall](https://github.com/cargo-bins/cargo-binstall))
+
+```sh
+cargo binstall mockbox
+```
+
+### Pre-Built Binaries (manual download)
 
 You can download pre-built binaries from the [latest release](https://github.com/hardliner66/mockbox/releases).
 
@@ -62,7 +99,7 @@ mockbox mock mockbox.rn --upstream http://localhost:8080
 
 ## Rune Script API
 
-Your `mockbox.rn` must export a `handle_request` function that receives a request object and returns either a string, an object, a tuple (`(<statuscode>, <response>)`).
+Your `mockbox.rn` must export a `handle_request` function that receives a request object and returns either a string, an object, a tuple (`(<status_code>, <response>)`).
 
 ### Request Object
 
@@ -220,6 +257,8 @@ Enables the storage API to persist data between requests.
 
 _This is **enabled** by default_
 
+#### API
+
 ```rs
 // store a rune value
 storage::set(key: &str, value: rune::Value) -> Result<()>;
@@ -238,6 +277,11 @@ storage::clear() -> Result<()>;
 
 // get keys of all stored values
 storage::keys() -> Result<()>;
+```
+
+#### Example
+
+```rs
 ```
 
 ### `rng`

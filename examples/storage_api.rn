@@ -10,14 +10,14 @@ pub fn handle_request(request) {
     let body = request.body;
 
     match path.parts() {
-        // Example: Store a value (POST /storage/set?key=mykey with body as value)
+        // Example: Store a value (POST /storage/set?key=key with body as value)
         ["storage", "set"] if method == "POST" => {
             let key = query.get("key")?;
             storage::set(key, body)?;
             #{ success: true, message: `Stored value for key: ${key}` }
         },
 
-        // Example: Get a value (GET /storage/get?key=mykey)
+        // Example: Get a value (GET /storage/get?key=key)
         ["storage", "get"] if method == "GET" => {
             let key = query.get("key")?;
             let value = storage::get(key)?;
@@ -27,7 +27,7 @@ pub fn handle_request(request) {
             }
         },
 
-        // Example: Delete a value (DELETE /storage/delete?key=mykey)
+        // Example: Delete a value (DELETE /storage/delete?key=key)
         ["storage", "delete"] if method == "DELETE" => {
             let key = query.get("key")?;
             let deleted = storage::delete(key)?;
@@ -38,7 +38,7 @@ pub fn handle_request(request) {
             }
         },
 
-        // Example: Check if key exists (GET /storage/has?key=mykey)
+        // Example: Check if key exists (GET /storage/has?key=key)
         ["storage", "has"] if method == "GET" => {
             let key = query.get("key")?;
             let exists = storage::has(key)?;
@@ -59,31 +59,22 @@ pub fn handle_request(request) {
 
         // Example: Counter endpoint using storage
         ["counter"] if method == "GET" => {
-            let count = match storage::get("counter")? {
-                Some(v) => v.parse::<i64>().unwrap_or(0),
-                None => 0,
-            };
+            let count = storage::get("counter")?.unwrap_or(0);
             #{ counter: count }
         },
 
         ["counter"] if method == "POST" => {
-            let count = match storage::get("counter")? {
-                Some(v) => v.parse::<i64>().unwrap_or(0),
-                None => 0,
-            };
+            let count = storage::get("counter")?.unwrap_or(0);
             let new_count = count + 1;
-            storage::set("counter", `${new_count}`)?;
+            storage::set("counter", new_count)?;
             #{ counter: new_count }
         },
 
         // Example: Simple visitor tracking
         ["visit"] => {
-            let visits = match storage::get("visits")? {
-                Some(v) => v.parse::<i64>().unwrap_or(0),
-                None => 0,
-            };
+            let visits = storage::get("visits")?.unwrap_or(0);
             let new_visits = visits + 1;
-            storage::set("visits", `${new_visits}`)?;
+            storage::set("visits", new_visits)?;
             `Welcome! You are visitor #${new_visits}`
         }
     }
