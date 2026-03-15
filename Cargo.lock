@@ -1114,7 +1114,7 @@ dependencies = [
 
 [[package]]
 name = "mockbox"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1125,8 +1125,8 @@ dependencies = [
  "notify",
  "parking_lot",
  "privdrop",
- "rand 0.10.0",
  "reqwest 0.13.2",
+ "rugen",
  "rune",
  "rune-modules",
  "serde_json",
@@ -1492,7 +1492,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1689,6 +1689,17 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "rugen"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a2f91703d51e909a4f61d82c7c10f8ea93be60b8b117dbeba2a3bfc3d1d65e6"
+dependencies = [
+ "rand 0.10.0",
+ "rune",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

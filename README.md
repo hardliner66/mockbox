@@ -30,9 +30,8 @@ A flexible HTTP proxy server powered by [Rune scripting](https://rune-rs.github.
   - [`storage`](#storage)
     - [Storage API](#storage-api)
     - [Storage Example](#storage-example)
-  - [`spec`](#spec)
-    - [Spec API](#spec-api)
-    - [Spec Example](#spec-example)
+  - [`rugen`](#rugen)
+    - [Rugen Example](#rugen-example)
 
 ## Features
 
@@ -291,78 +290,31 @@ storage::keys() -> Result<()>;
 },
 ```
 
-### `spec`
+### `rugen`
 
-Enables the spec API to build descriptions for generating random data.
+Enables the [rugen](https://github.com/hardliner66/rugen) API to build descriptions for generating random data.
 
 _This is **enabled** by default_
 
-#### Spec API
+#### Rugen Example
 
+This is what describing data with `RuGen` looks like:
 ```rs
-// creates a spec that evaluates to the passed value
-spec::just(value: rune::Value) -> Spec;
-
-// creates a spec that evaluates to a random boolean
-spec::bool() -> Spec;
-
-// creates a spec that evaluates to a random u128 between <min> and <max> (exclusive)
-spec::uint(min: u128, max:  u128) -> Spec;
-
-// creates a spec that evaluates to a random i128 between <min> and <max> (exclusive)
-spec::int(min: i128, max:  i128) -> Spec;
-
-// creates a spec that evaluates to a random f64 between <min> and <max> (exclusive)
-spec::float(min: f32, max: f32) -> Spec;
-
-// creates a spec that evaluates to a string of random alpha numeric characters that is <len> long
-spec::alphanumeric(len: Spec) -> Spec;
-
-// creates a spec that evaluates to a string of random characters between <min> and <max> (exclusive)
-spec::string(min: usize, max: usize) -> Spec;
-
-// creates a spec that evaluates to a random value from the passed vec
-spec::one_of(values: Vec<Spec>) -> Spec;
-
-// creates a spec that evaluates to a weighted random value from the passed vec
-spec::weighted(values: Vec<(u32, Spec)>) -> Spec;
-
-// creates a spec that evaluates to a vec of length <len>, filled with values defined by <item>
-spec::array(len: Spec, item: Spec) -> Spec;
-
-// creates a spec that evaluates to a an object
-spec::object(fields: HashMap<String, Spec>) -> Spec;
-
-// creates a spec that has a 0.0 < p < 1.0 chance to evaluate to an optional value defined by <item>
-spec::optional(p: Spec, item: Spec) -> Spec;
-
-// creates a spec that takes all items in a vec and evaluates them to values, according to their spec
-spec::tuple(items: Vec<Spec>) -> Spec;
-
-// evaluates a given spec
-Spec::generate(&self) -> Result<rune::Value>;
+use rugen::*;
+describe(
+    #{
+        asdf: 1..10,
+        values: 5.values(55.0..128.0),
+        range_from: 100..,
+        range_to: ..100,
+        choice: [
+            #{ A: 100..=200 },
+            #{ B: -100..100 },
+            #{ C: 0.5..2.5 },
+            #{ D: alphanumeric(10) },
+        ].pick(),
+    },
+)?
 ```
 
-#### Spec Example
-
-```rs
-use spec as s;
-
-match path.parts() {
-    ["demo"] => object(
-            #{
-                asdf: s::uint(1, 10),
-                values: s::array(s::just(5), s::float(55.0, 128.0)),
-                choice: s::one_of(
-                    [
-                        s::object(#{ A: s::uint(100, 200) }),
-                        s::object(#{ B: s::int(-100, 100) }),
-                        s::object(#{ C: s::float(0.5, 2.5) }),
-                        s::object(#{ D: s::alphanumeric(s::just(10)) }),
-                    ],
-                ),
-            },
-        )
-        .generate()?,
-}
-```
+For more information on `RuGen`, please visit the [project repository](https://github.com/hardliner66/rugen).

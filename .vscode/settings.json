@@ -15,6 +15,7 @@
         "privdrop",
         "reloadable",
         "reqwest",
+        "rugen",
         "rustup",
         "serde",
         "softprops",

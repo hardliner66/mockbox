@@ -1,14 +1,14 @@
-// Spec API Example
+// Rugen API Example
 //
-// This script only compiles if the "spec" feature is enabled in Cargo.toml.
+// This script only compiles if the "rugen" feature is enabled in Cargo.toml.
 
 pub fn handle_request(request) {
     let path = request.path;
 
     match path.parts() {
         ["demo"] => {
-            use spec::*;
-            spec(
+            use rugen::*;
+            describe(
                 #{
                     asdf: 1..10,
                     values: 5.values(55.0..128.0),

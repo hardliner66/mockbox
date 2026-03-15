@@ -169,9 +169,9 @@ impl AppStateMock {
             .install(module().map_err(to_string)?)
             .map_err(to_string)?;
 
-        #[cfg(feature = "spec")]
+        #[cfg(feature = "rugen")]
         context
-            .install(spec_module().map_err(to_string)?)
+            .install(rugen::module().map_err(to_string)?)
             .map_err(to_string)?;
 
         // Install storage module
@@ -289,10 +289,8 @@ fn setup_file_watcher(
 use clap::{Parser, Subcommand};
 
 use crate::helper::to_string;
-#[cfg(feature = "spec")]
-use crate::modules::spec::spec_module;
 #[cfg(feature = "storage")]
-use crate::modules::storage::{storage_module, Storage};
+use crate::modules::storage::{Storage, storage_module};
 
 #[derive(Parser)]
 struct Cli {
@@ -769,7 +767,8 @@ fn parts(value: &str) -> Vec<String> {
 fn module() -> Result<Module, ContextError> {
     let mut m = Module::new();
     m.function("cfg", |key: &str| {
-        (cfg!(feature = "storage") && key == "storage") || (cfg!(feature = "spec") && key == "spec")
+        (cfg!(feature = "storage") && key == "storage")
+            || (cfg!(feature = "rugen") && key == "rugen")
     })
     .build()?;
     m.function_meta(parts)?;
