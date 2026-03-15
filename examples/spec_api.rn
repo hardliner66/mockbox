@@ -8,21 +8,20 @@ pub fn handle_request(request) {
     match path.parts() {
         ["demo"] => {
             use spec::*;
-            object(
-                    #{
-                        asdf: uint(1, 10),
-                        values: array(just(5), float(55.0, 128.0)),
-                        choice: one_of(
-                            [
-                                object(#{ A: uint(100, 200) }),
-                                object(#{ B: int(-100, 100) }),
-                                object(#{ C: float(0.5, 2.5) }),
-                                object(#{ D: alphanumeric(just(10)) }),
-                            ],
-                        ),
-                    },
-                )
-                .generate()?
+            spec(
+                #{
+                    asdf: 1..10,
+                    values: 5.values(55.0..128.0),
+                    range_from: 100..,
+                    range_to: ..100,
+                    choice: [
+                        #{ A: 100..=200 },
+                        #{ B: -100..100 },
+                        #{ C: 0.5..2.5 },
+                        #{ D: alphanumeric(10) },
+                    ].pick(),
+                },
+            )?
         }
     }
 }
