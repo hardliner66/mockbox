@@ -11,6 +11,8 @@ use axum::{
 };
 use bytes::Bytes;
 use directories::ProjectDirs;
+use notify::{Event, EventKind, RecursiveMode, Watcher};
+use parking_lot::RwLock;
 use reqwest::Client;
 use rune::{
     Context, ContextError, Diagnostics, Module, Source, Sources, Vm,
@@ -20,12 +22,7 @@ use rune::{
     Unit,
     runtime::{Object, Value},
 };
-use std::{
-    collections::HashMap,
-    fmt::Display,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{collections::HashMap, fmt::Display, path::PathBuf, sync::Arc, time::SystemTime};
 #[cfg(feature = "storage")]
 use storage::Storage;
 use tracing::{error, info};
@@ -44,6 +41,13 @@ impl Clone for AppStateShared {
     }
 }
 
+struct ScriptCache {
+    context: Arc<Context>,
+    unit: Arc<Unit>,
+    source_path: PathBuf,
+    modified_time: SystemTime,
+}
+
 struct AppStateLog {
     shared: AppStateShared,
 }
@@ -57,7 +61,9 @@ impl Clone for AppStateLog {
 }
 
 struct AppStateMock {
-    script_path: Option<PathBuf>,
+    local_script_path: PathBuf,
+    global_script_path: PathBuf,
+    cache: Arc<RwLock<Option<ScriptCache>>>,
     shared: AppStateShared,
     #[cfg(feature = "storage")]
     storage: Storage,
@@ -65,21 +71,71 @@ struct AppStateMock {
 
 impl AppStateMock {
     fn new(script_path: Option<PathBuf>, shared: AppStateShared) -> Self {
+        let global_script_path = ProjectDirs::from("com", "hardliner66", "mockbox")
+            .unwrap()
+            .data_local_dir()
+            .join("mockbox.rn");
+        let local_script_path = if let Some(path) = script_path {
+            path
+        } else {
+            PathBuf::from("./mockbox.rn")
+        };
+
         Self {
-            script_path,
+            local_script_path,
+            global_script_path,
+            cache: Arc::new(RwLock::new(None)),
             shared,
             #[cfg(feature = "storage")]
             storage: Storage::new(),
         }
     }
-    fn load_script<P: AsRef<Path>>(&self, path: P) -> Result<(Context, Unit), StatusCode> {
-        let path = path.as_ref();
-        // Load rune script
-        let Ok(script_content) = std::fs::read_to_string(path) else {
+    fn get_active_script_path(&self) -> Option<PathBuf> {
+        if self.local_script_path.exists() {
+            Some(self.local_script_path.clone())
+        } else if self.global_script_path.exists() {
+            Some(self.global_script_path.clone())
+        } else {
+            None
+        }
+    }
+
+    fn load_script(&self) -> Result<(Arc<Context>, Arc<Unit>), StatusCode> {
+        let Some(active_path) = self.get_active_script_path() else {
+            error!(
+                "No script file found at {} or {}",
+                self.local_script_path.display(),
+                self.global_script_path.display()
+            );
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         };
 
-        // Compile rune script
+        // Check if we need to reload
+        let modified_time = std::fs::metadata(&active_path)
+            .and_then(|m| m.modified())
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+
+        // Check cache
+        {
+            let cache = self.cache.read();
+            if let Some(cached) = cache.as_ref() {
+                if cached.source_path == active_path && cached.modified_time == modified_time {
+                    // Cache hit
+                    return Ok((cached.context.clone(), cached.unit.clone()));
+                }
+            }
+        }
+
+        // Cache miss or invalidated - reload and recompile
+        let script_content = std::fs::read_to_string(&active_path).map_err(|e| {
+            error!(
+                "Failed to read script file {}: {}",
+                active_path.display(),
+                e
+            );
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
         let (context, unit) = match self.compile_rune_script(&script_content) {
             Ok(result) => result,
             Err(e) => {
@@ -87,7 +143,22 @@ impl AppStateMock {
                 return Err(StatusCode::INTERNAL_SERVER_ERROR);
             }
         };
-        Ok((context, unit))
+
+        // Update cache
+        let context_arc = Arc::new(context);
+        let unit_arc = Arc::new(unit);
+
+        {
+            let mut cache = self.cache.write();
+            *cache = Some(ScriptCache {
+                context: context_arc.clone(),
+                unit: unit_arc.clone(),
+                source_path: active_path,
+                modified_time,
+            });
+        }
+
+        Ok((context_arc, unit_arc))
     }
     fn compile_rune_script(&self, script: &str) -> Result<(Context, rune::Unit), String> {
         let mut context = rune_modules::default_context()
@@ -137,12 +208,75 @@ impl AppStateMock {
 impl Clone for AppStateMock {
     fn clone(&self) -> Self {
         Self {
-            script_path: self.script_path.clone(),
+            local_script_path: self.local_script_path.clone(),
+            global_script_path: self.global_script_path.clone(),
+            cache: self.cache.clone(),
             shared: self.shared.clone(),
             #[cfg(feature = "storage")]
             storage: self.storage.clone(),
         }
     }
+}
+
+fn setup_file_watcher(
+    cache: Arc<RwLock<Option<ScriptCache>>>,
+    local_path: PathBuf,
+    global_path: PathBuf,
+) -> notify::Result<()> {
+    use notify::Config;
+    use std::sync::mpsc::channel;
+
+    let (tx, rx) = channel();
+
+    let mut watcher = notify::RecommendedWatcher::new(
+        move |res: Result<Event, notify::Error>| {
+            if let Ok(event) = res {
+                let _ = tx.send(event);
+            }
+        },
+        Config::default(),
+    )?;
+
+    // Watch the local script file (or its parent directory if it doesn't exist)
+    if let Some(parent) = local_path.parent() {
+        if parent.exists() {
+            let _ = watcher.watch(parent, RecursiveMode::NonRecursive);
+        }
+    }
+
+    // Watch the global script file (or its parent directory if it doesn't exist)
+    if let Some(parent) = global_path.parent() {
+        if parent.exists() {
+            let _ = watcher.watch(parent, RecursiveMode::NonRecursive);
+        }
+    }
+
+    // Spawn a thread to handle file system events
+    std::thread::spawn(move || {
+        // Keep watcher alive
+        let _watcher = watcher;
+
+        for event in rx {
+            match event.kind {
+                EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) => {
+                    // Check if the event is for one of our watched files
+                    let relevant = event
+                        .paths
+                        .iter()
+                        .any(|p| p == &local_path || p == &global_path);
+
+                    if relevant {
+                        info!("Script file changed, invalidating cache");
+                        let mut cache = cache.write();
+                        *cache = None;
+                    }
+                }
+                _ => {}
+            }
+        }
+    });
+
+    Ok(())
 }
 
 use clap::{Parser, Subcommand};
@@ -253,6 +387,21 @@ async fn main() -> anyhow::Result<()> {
                     upstream,
                 },
             );
+
+            // Set up file watcher
+            if let Err(e) = setup_file_watcher(
+                state.cache.clone(),
+                state.local_script_path.clone(),
+                state.global_script_path.clone(),
+            ) {
+                error!("Failed to set up file watcher: {}", e);
+                info!(
+                    "Continuing without file watching - scripts will be reloaded on every request"
+                );
+            } else {
+                info!("File watcher initialized for script files");
+            }
+
             // Build router using closure to capture state
             let state_clone = state.clone();
             info!("Upstream URL: {:?}", state.shared.upstream);
@@ -544,25 +693,13 @@ fn execute_and_parse_rune_script(
 
     let request = Value::new(request_data).map_err(to_string)?;
 
-    let (context, unit) = if let Some(path) = state.script_path.as_ref() {
-        state.load_script(path)
-    } else {
-        if std::fs::exists("./mockbox.rn").unwrap() {
-            state.load_script("./mockbox.rn")
-        } else {
-            state.load_script(
-                ProjectDirs::from("com", "hardliner66", "mockbox")
-                    .unwrap()
-                    .data_local_dir()
-                    .join("mockbox.rn"),
-            )
-        }
-    }
-    .map_err(|e| format!("Failed to load script: {e}"))?;
+    let (context, unit) = state
+        .load_script()
+        .map_err(|e| format!("Failed to load script: {e}"))?;
 
     let runtime = Arc::new(context.runtime().map_err(to_string)?);
 
-    let mut vm = Vm::new(runtime.clone(), Arc::new(unit));
+    let mut vm = Vm::new(runtime.clone(), unit);
 
     let result = vm
         .call(rune::Hash::type_hash(["handle_request"]), (request,))

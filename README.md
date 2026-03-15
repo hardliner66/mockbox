@@ -1,6 +1,6 @@
 # Mockbox
 
-A flexible HTTP proxy server powered by Rune scripting. Every incoming request is first handled by a Rune script, which can either respond directly or indicate that the request should be proxied to an upstream server.
+A flexible HTTP proxy server powered by [Rune scripting](https://rune-rs.github.io/). Every incoming request is first handled by a Rune script, which can either respond directly or indicate that the request should be proxied to an upstream server.
 
 ## Features
 
@@ -33,6 +33,8 @@ cargo install mockbox
 ```bash
 mockbox example > mockbox.rn
 ```
+
+_If you want to learn more about rune, check out the [rune book](https://rune-rs.github.io/book/)._
 
 2. Run the server:
 
