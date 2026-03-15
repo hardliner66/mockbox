@@ -1,8 +1,6 @@
 use rune::{ContextError, Module, Value};
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock},
-};
+use std::{collections::HashMap, sync::Arc};
+use tokio::sync::RwLock;
 
 /// A thread-safe persistent key-value store
 #[derive(Clone)]
@@ -20,8 +18,8 @@ impl Storage {
     }
 
     /// Store a value with the given key
-    pub fn set(&self, key: &str, value: Value) -> Result<(), String> {
-        self.db.write().map_err(|e| e.to_string())?.insert(
+    pub async fn set(&self, key: &str, value: Value) -> Result<(), String> {
+        self.db.write().await.insert(
             key.to_owned(),
             serde_json::to_value(value).map_err(|e| e.to_string())?,
         );
@@ -29,11 +27,11 @@ impl Storage {
     }
 
     /// Retrieve a value by key
-    pub fn get(&self, key: &str) -> Result<Option<Value>, String> {
+    pub async fn get(&self, key: &str) -> Result<Option<Value>, String> {
         Ok(self
             .db
             .read()
-            .map_err(|e| e.to_string())?
+            .await
             .get(key)
             .cloned()
             .map(|v| serde_json::from_value(v).map_err(|e| e.to_string()))
@@ -41,39 +39,34 @@ impl Storage {
     }
 
     /// Delete a value by key
-    pub fn delete(&self, key: &str) -> Result<bool, String> {
-        Ok(self
-            .db
-            .write()
-            .map_err(|e| e.to_string())?
-            .remove(key)
-            .is_some())
+    pub async fn delete(&self, key: &str) -> Result<bool, String> {
+        Ok(self.db.write().await.remove(key).is_some())
     }
 
     /// Check if a key exists
-    pub fn has(&self, key: &str) -> Result<bool, String> {
-        Ok(self.db.read().map_err(|e| e.to_string())?.contains_key(key))
+    pub async fn has(&self, key: &str) -> Result<bool, String> {
+        Ok(self.db.read().await.contains_key(key))
     }
 
     /// Clear all values from storage
-    pub fn clear(&self) -> Result<(), String> {
-        Ok(self.db.write().map_err(|e| e.to_string())?.clear())
+    pub async fn clear(&self) -> Result<(), String> {
+        Ok(self.db.write().await.clear())
     }
 
     /// Get all keys in storage
-    pub fn keys(&self) -> Result<Vec<String>, String> {
-        let db = self.db.read().map_err(|e| e.to_string())?;
+    pub async fn keys(&self) -> Result<Vec<String>, String> {
+        let db = self.db.read().await;
         Ok(db.keys().cloned().collect::<Vec<String>>())
     }
 
     /// Get the number of keys in storage
-    pub fn len(&self) -> Result<usize, String> {
-        Ok(self.db.read().map_err(|e| e.to_string())?.len())
+    pub async fn len(&self) -> Result<usize, String> {
+        Ok(self.db.read().await.len())
     }
 
     /// Check if storage is empty
-    pub fn is_empty(&self) -> Result<bool, String> {
-        Ok(self.db.read().map_err(|e| e.to_string())?.is_empty())
+    pub async fn is_empty(&self) -> Result<bool, String> {
+        Ok(self.db.read().await.is_empty())
     }
 }
 
@@ -86,44 +79,64 @@ pub fn create_storage_module(storage: &Storage) -> Result<Module, ContextError> 
         let storage = storage.clone();
         module
             .function("set", move |key: &str, value: Value| {
-                storage.set(key, value)
+                tokio::runtime::Handle::current().block_on(storage.set(key, value))
             })
             .build()?;
     }
     {
         let storage = storage.clone();
         module
-            .function("get", move |key: &str| storage.get(key))
+            .function("get", move |key: &str| {
+                tokio::runtime::Handle::current().block_on(storage.get(key))
+            })
             .build()?;
     }
     {
         let storage = storage.clone();
         module
-            .function("delete", move |key: &str| storage.delete(key))
+            .function("delete", move |key: &str| {
+                tokio::runtime::Handle::current().block_on(storage.delete(key))
+            })
             .build()?;
     }
     {
         let storage = storage.clone();
         module
-            .function("has", move |key: &str| storage.has(key))
+            .function("has", move |key: &str| {
+                tokio::runtime::Handle::current().block_on(storage.has(key))
+            })
             .build()?;
     }
     {
         let storage = storage.clone();
-        module.function("clear", move || storage.clear()).build()?;
-    }
-    {
-        let storage = storage.clone();
-        module.function("keys", move || storage.keys()).build()?;
-    }
-    {
-        let storage = storage.clone();
-        module.function("len", move || storage.len()).build()?;
+        module
+            .function("clear", move || {
+                tokio::runtime::Handle::current().block_on(storage.clear())
+            })
+            .build()?;
     }
     {
         let storage = storage.clone();
         module
-            .function("is_empty", move || storage.is_empty())
+            .function("keys", move || {
+                tokio::runtime::Handle::current().block_on(storage.keys())
+            })
+            .build()?;
+    }
+    {
+        let storage = storage.clone();
+        module
+            .function("len", move || {
+                tokio::runtime::Handle::current().block_on(storage.len())
+            })
+            .build()?;
+    }
+    {
+        let storage = storage.clone();
+        module
+            .function("is_empty", move || {
+                tokio::runtime::Handle::current().block_on(storage.is_empty())
+            })
             .build()?;
     }
 

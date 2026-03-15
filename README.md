@@ -210,11 +210,13 @@ curl http://localhost:3333/hello
 curl http://localhost:3333/some/real/path
 ```
 
-## Optional Features
+## Features
+
 ### `storage`
+
 Enables the storage API to persist data between requests.
 
-_This is disabled by default, because it currently uses a blocking `RwLock` to synchronize access._
+_This is **enabled** by default_
 
 ```rs
 // store a rune value
