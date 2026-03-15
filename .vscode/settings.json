@@ -1,5 +1,8 @@
 {
     "[rune]": {
         "editor.formatOnSave": false
-    }
+    },
+    "cSpell.words": [
+        "usize"
+    ]
 }

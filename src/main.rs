@@ -1,3 +1,6 @@
+mod helper;
+mod modules;
+
 #[cfg(feature = "storage")]
 mod storage;
 
@@ -118,11 +121,12 @@ impl AppStateMock {
         // Check cache
         {
             let cache = self.cache.read();
-            if let Some(cached) = cache.as_ref() {
-                if cached.source_path == active_path && cached.modified_time == modified_time {
-                    // Cache hit
-                    return Ok((cached.context.clone(), cached.unit.clone()));
-                }
+            if let Some(cached) = cache.as_ref()
+                && cached.source_path == active_path
+                && cached.modified_time == modified_time
+            {
+                // Cache hit
+                return Ok((cached.context.clone(), cached.unit.clone()));
             }
         }
 
@@ -160,12 +164,24 @@ impl AppStateMock {
 
         Ok((context_arc, unit_arc))
     }
+
+    #[cfg_attr(not(feature = "storage"), expect(clippy::unused_self))]
     fn compile_rune_script(&self, script: &str) -> Result<(Context, rune::Unit), String> {
         let mut context = rune_modules::default_context()
             .map_err(|e| format!("Failed to create context: {e}"))?;
 
         context
             .install(module().map_err(to_string)?)
+            .map_err(to_string)?;
+
+        #[cfg(feature = "rng")]
+        context
+            .install(rng_module().map_err(to_string)?)
+            .map_err(to_string)?;
+
+        #[cfg(feature = "spec")]
+        context
+            .install(spec_module().map_err(to_string)?)
             .map_err(to_string)?;
 
         // Install storage module
@@ -238,17 +254,17 @@ fn setup_file_watcher(
     )?;
 
     // Watch the local script file (or its parent directory if it doesn't exist)
-    if let Some(parent) = local_path.parent() {
-        if parent.exists() {
-            let _ = watcher.watch(parent, RecursiveMode::NonRecursive);
-        }
+    if let Some(parent) = local_path.parent()
+        && parent.exists()
+    {
+        let _ = watcher.watch(parent, RecursiveMode::NonRecursive);
     }
 
     // Watch the global script file (or its parent directory if it doesn't exist)
-    if let Some(parent) = global_path.parent() {
-        if parent.exists() {
-            let _ = watcher.watch(parent, RecursiveMode::NonRecursive);
-        }
+    if let Some(parent) = global_path.parent()
+        && parent.exists()
+    {
+        let _ = watcher.watch(parent, RecursiveMode::NonRecursive);
     }
 
     // Spawn a thread to handle file system events
@@ -280,6 +296,12 @@ fn setup_file_watcher(
 }
 
 use clap::{Parser, Subcommand};
+
+use crate::helper::to_string;
+#[cfg(feature = "rng")]
+use crate::modules::rng_module;
+#[cfg(feature = "spec")]
+use crate::modules::spec_module;
 
 #[derive(Parser)]
 struct Cli {
@@ -496,7 +518,7 @@ async fn handle_with_rune(state: AppStateMock, request: Request) -> HttpResponse
     let path_string = uri.path().to_string();
     let query_map = uri.query().map(|q| {
         q.split('&')
-            .flat_map(|p| p.split_once('='))
+            .filter_map(|p| p.split_once('='))
             .map(|(k, v)| (k.to_owned(), v.to_owned()))
             .collect::<HashMap<String, String>>()
     });
@@ -624,12 +646,16 @@ enum MimeType {
     ApplicationJson,
 }
 
-impl ToString for MimeType {
-    fn to_string(&self) -> String {
-        match self {
-            MimeType::TextPlain => "text/plain".to_string(),
-            MimeType::ApplicationJson => "application/json".to_string(),
-        }
+impl Display for MimeType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                MimeType::TextPlain => "text/plain",
+                MimeType::ApplicationJson => "application/json",
+            }
+        )
     }
 }
 
@@ -638,10 +664,6 @@ struct ResponseData {
     status: u16,
     body: String,
     mime_type: MimeType,
-}
-
-fn to_string<T: Display>(value: T) -> String {
-    value.to_string()
 }
 
 fn execute_and_parse_rune_script(
@@ -736,12 +758,12 @@ fn execute_and_parse_rune_script(
     }
 
     // Parse response
-    return Ok(Some(ResponseData {
+    Ok(Some(ResponseData {
         status: 200,
         body: serde_json::to_string(&result)
             .map_err(|e| format!("Invalid response object: {e}"))?,
         mime_type: MimeType::ApplicationJson,
-    }));
+    }))
 }
 
 #[rune::function(instance)]
@@ -756,12 +778,9 @@ fn parts(value: &str) -> Vec<String> {
 fn module() -> Result<Module, ContextError> {
     let mut m = Module::new();
     m.function("cfg", |key: &str| {
-        if cfg!(feature = "storage") {
-            if key == "storage" {
-                return true;
-            }
-        }
-        false
+        (cfg!(feature = "storage") && key == "storage")
+            || (cfg!(feature = "rng") && key == "rng")
+            || (cfg!(feature = "spec") && key == "spec")
     })
     .build()?;
     m.function_meta(parts)?;

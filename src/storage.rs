@@ -28,14 +28,13 @@ impl Storage {
 
     /// Retrieve a value by key
     pub async fn get(&self, key: &str) -> Result<Option<Value>, String> {
-        Ok(self
-            .db
+        self.db
             .read()
             .await
             .get(key)
             .cloned()
             .map(|v| serde_json::from_value(v).map_err(|e| e.to_string()))
-            .transpose()?)
+            .transpose()
     }
 
     /// Delete a value by key
@@ -50,7 +49,8 @@ impl Storage {
 
     /// Clear all values from storage
     pub async fn clear(&self) -> Result<(), String> {
-        Ok(self.db.write().await.clear())
+        self.db.write().await.clear();
+        Ok(())
     }
 
     /// Get all keys in storage

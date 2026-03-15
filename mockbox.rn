@@ -9,6 +9,8 @@ pub fn handle_request(request) {
         // Example: Simple string response (will be 200 OK)
         ["ping"] => "pong",
 
+        ["rng"] => rng::range(),
+
         // Example: Echo endpoint that returns the request body
         ["echo"] => body,
 
