@@ -1127,7 +1127,6 @@ dependencies = [
  "privdrop",
  "reqwest 0.13.2",
  "rugen",
- "rune",
  "rune-modules",
  "serde_json",
  "tokio",
@@ -1693,9 +1692,9 @@ dependencies = [
 
 [[package]]
 name = "rugen"
-version = "0.8.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04f0a2130a6f9fa4bf863f1d97f2c63b6f856cbf2c517c7dd7135eb9d744021b"
+checksum = "fee2e0884c5afc0ed8db77633d0561f363ba135c5d9f04dd15c757afd642a581"
 dependencies = [
  "rand 0.10.0",
  "rune",

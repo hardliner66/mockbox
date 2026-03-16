@@ -13,15 +13,13 @@ pub fn handle_request(request) {
         ["echo"] => body,
 
         // Example: Mock API with JSON response
-        ["api", "users"] => [ #{ "id": 1, "name": "Alice" }
-                            , #{ "id": 2, "name": "Bob" }
-                            ],
+        ["api", "users"] => [
+            #{ "id": 1, "name": "Alice" }, //
+            #{ "id": 2, "name": "Bob" },
+        ],
 
         // Example: Mock authentication endpoint
-        ["api", "login"] if method == "POST" =>
-            #{ "token": "mock-jwt-token-abc123"
-             , "user": "test_user"
-             },
+        ["api", "login"] if method == "POST" => #{ "token": "mock-jwt-token-abc123", "user": "test_user" },
 
         // Example: Simulate different HTTP status codes
         ["error", "404"] => (404, "Not Found"),
@@ -32,7 +30,7 @@ pub fn handle_request(request) {
 
         // Example: Mock API with JSON response
         ["demo"] => [
-            #{ id: 1, name: "Alice" },
+            #{ id: 1, name: "Alice" }, //
             #{ id: 2, name: "Bob", details: #{ "age": 30, "city": "New York" } },
         ],
     }

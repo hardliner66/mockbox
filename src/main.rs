@@ -1,6 +1,8 @@
 mod helper;
 mod modules;
 
+use rugen::rune;
+
 use axum::{
     Router,
     body::Body,
@@ -14,7 +16,8 @@ use directories::ProjectDirs;
 use notify::{Event, EventKind, RecursiveMode, Watcher};
 use parking_lot::RwLock;
 use reqwest::Client;
-use rugen::generate;
+#[cfg(feature = "rugen")]
+use rugen::{DataDescription, checked_from_value};
 use rune::{
     Context, ContextError, Diagnostics, Module, Source, Sources, Vm,
     termcolor::{ColorChoice, StandardStream},
@@ -128,14 +131,8 @@ impl AppStateMock {
         }
 
         // Cache miss or invalidated - reload and recompile
-        let script_content = std::fs::read_to_string(&active_path).map_err(|e| {
-            error!(
-                "Failed to read script file {}: {}",
-                active_path.display(),
-                e
-            );
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        let script_content =
+            std::fs::read_to_string(&active_path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
         let (context, unit) = match self.compile_rune_script(&script_content) {
             Ok(result) => result,
@@ -163,34 +160,20 @@ impl AppStateMock {
     }
 
     #[cfg_attr(not(feature = "cache"), expect(clippy::unused_self))]
-    fn compile_rune_script(&self, script: &str) -> Result<(Context, rune::Unit), String> {
-        let mut context = rune_modules::default_context()
-            .map_err(|e| format!("Failed to create context: {e}"))?;
+    fn compile_rune_script(&self, script: &str) -> anyhow::Result<(Context, rune::Unit)> {
+        let mut context = rune_modules::default_context()?;
 
-        context
-            .install(module().map_err(to_string)?)
-            .map_err(to_string)?;
+        context.install(module()?)?;
 
         #[cfg(feature = "rugen")]
-        context
-            .install(rugen::module().map_err(to_string)?)
-            .map_err(to_string)?;
+        context.install(rugen::module()?)?;
 
         // Install cache module
         #[cfg(feature = "cache")]
-        {
-            context
-                .install(
-                    cache_module(&self.cache)
-                        .map_err(|e| format!("Failed to create cache module: {e}"))?,
-                )
-                .map_err(|e| format!("Failed to install cache module: {e}"))?;
-        }
+        context.install(cache_module(&self.cache)?)?;
 
         let mut sources = Sources::new();
-        sources
-            .insert(Source::memory(script).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())?;
+        sources.insert(Source::memory(script)?)?;
 
         let mut diagnostics = Diagnostics::new();
 
@@ -201,14 +184,12 @@ impl AppStateMock {
 
         if !diagnostics.is_empty() {
             let mut writer = StandardStream::stderr(ColorChoice::Always);
-            diagnostics
-                .emit(&mut writer, &sources)
-                .map_err(|e| format!("Failed to emit diagnostics: {e}"))?;
+            diagnostics.emit(&mut writer, &sources)?;
 
-            return Err("Script compilation failed".to_string());
+            anyhow::bail!("Script compilation failed");
         }
 
-        let unit = result.map_err(|e| format!("Build failed: {e}"))?;
+        let unit = result?;
 
         Ok((context, unit))
     }
@@ -330,6 +311,13 @@ enum Mode {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+    /// Format a rune script
+    #[cfg(feature = "rugen")]
+    Format {
+        #[arg(short, long)]
+        in_place: bool,
+        script: PathBuf,
+    },
     /// Print the example script and exit
     Example {
         #[command(subcommand)]
@@ -376,6 +364,7 @@ fn drop_privileges(root_dir: Option<PathBuf>, user: Option<String>, group: Optio
 }
 
 #[tokio::main]
+#[expect(clippy::too_many_lines)]
 async fn main() -> anyhow::Result<()> {
     let Cli {
         upstream,
@@ -397,12 +386,25 @@ async fn main() -> anyhow::Result<()> {
                 ExampleType::Mock => {
                     println!("{}", include_str!("../mockbox.rn"));
                 }
+                #[cfg(feature = "rugen")]
                 ExampleType::Gen => {
                     println!("{}", include_str!("../examples/gen_example.rn"));
                 }
             }
             return Ok(());
         }
+
+        Mode::Format { in_place, script } => {
+            let formatted = rugen::format_rune_script(&script).expect("Could not format script!");
+            if in_place {
+                std::fs::write(&script, formatted)?;
+                println!("Formatted script written to {}", script.display());
+            } else {
+                println!("{}", formatted);
+            }
+            return Ok(());
+        }
+
         Mode::Log => {
             let state = AppStateLog {
                 shared: AppStateShared {
@@ -487,7 +489,7 @@ async fn main() -> anyhow::Result<()> {
                 string_result
             } else {
                 let description = rugen::DataDescription::try_from(&result)?;
-                let value = rugen::generate(&description)?;
+                let value = description.evaluate()?;
                 if pretty {
                     serde_json::to_string_pretty(&value)?
                 } else {
@@ -603,7 +605,7 @@ async fn handle_with_rune(state: AppStateMock, request: Request) -> HttpResponse
     .await
     .unwrap_or_else(|e| {
         error!("Rune task panicked: {e}");
-        Err("Script task failed".to_string())
+        Err(anyhow::anyhow!("Script task failed"))
     });
 
     // Handle result
@@ -739,88 +741,94 @@ fn execute_and_parse_rune_script(
     path: &str,
     body: &str,
     query: HashMap<String, String>,
-) -> Result<Option<ResponseData>, String> {
+) -> anyhow::Result<Option<ResponseData>> {
     // Build rune request data inside this non-async context
     let mut request_data = Object::new();
 
     // Convert strings to rune strings
-    let method_str = rune::alloc::String::try_from(method)
-        .map_err(|e| format!("Failed to allocate method string: {e}"))?;
-    let path_str = rune::alloc::String::try_from(path)
-        .map_err(|e| format!("Failed to allocate path string: {e}"))?;
-    let body_str = rune::alloc::String::try_from(body)
-        .map_err(|e| format!("Failed to allocate body string: {e}"))?;
+    let method_str = rune::alloc::String::try_from(method)?;
+    let path_str = rune::alloc::String::try_from(path)?;
+    let body_str = rune::alloc::String::try_from(body)?;
 
     // Insert into object
-    request_data
-        .insert(
-            rune::alloc::String::try_from("method").map_err(to_string)?,
-            rune::to_value(method_str).map_err(to_string)?,
-        )
-        .map_err(|e| format!("Failed to insert method: {e}"))?;
+    request_data.insert(
+        rune::alloc::String::try_from("method")?,
+        rune::to_value(method_str)?,
+    )?;
 
-    request_data
-        .insert(
-            rune::alloc::String::try_from("path").map_err(to_string)?,
-            rune::to_value(path_str).map_err(to_string)?,
-        )
-        .map_err(|e| format!("Failed to insert path: {e}"))?;
+    request_data.insert(
+        rune::alloc::String::try_from("path")?,
+        rune::to_value(path_str)?,
+    )?;
 
-    request_data
-        .insert(
-            rune::alloc::String::try_from("query").map_err(to_string)?,
-            rune::to_value(query).map_err(to_string)?,
-        )
-        .map_err(|e| format!("Failed to insert body: {e}"))?;
+    request_data.insert(
+        rune::alloc::String::try_from("query")?,
+        rune::to_value(query)?,
+    )?;
 
-    request_data
-        .insert(
-            rune::alloc::String::try_from("body").map_err(to_string)?,
-            rune::to_value(body_str).map_err(to_string)?,
-        )
-        .map_err(|e| format!("Failed to insert body: {e}"))?;
+    request_data.insert(
+        rune::alloc::String::try_from("body")?,
+        rune::to_value(body_str)?,
+    )?;
 
-    let request = Value::new(request_data).map_err(to_string)?;
+    let request = Value::new(request_data)?;
+    let (context, unit) = match state.load_script() {
+        Ok(result) => result,
+        Err(e) => {
+            error!("Failed to load script: {e}");
+            return Err(anyhow::anyhow!("Failed to load script"));
+        }
+    };
 
-    let (context, unit) = state
-        .load_script()
-        .map_err(|e| format!("Failed to load script: {e}"))?;
-
-    let runtime = Arc::new(context.runtime().map_err(to_string)?);
+    let runtime = Arc::new(context.runtime()?);
 
     let mut vm = Vm::new(runtime.clone(), unit);
 
-    let result = vm
-        .call(rune::Hash::type_hash(["handle_request"]), (request,))
-        .map_err(|e| format!("Execution error: {e}"))?;
+    let result = vm.call(rune::Hash::type_hash(["handle_request"]), (request,))?;
 
     if let Ok(()) = rune::from_value(&result) {
         return Ok(None);
     }
 
     if let Ok((status, body)) = rune::from_value::<(u16, Value)>(&result) {
+        #[cfg(feature = "rugen")]
+        let body = checked_from_value::<Value>(&body)?;
+
+        #[cfg(feature = "rugen")]
+        if let Ok(description) = DataDescription::try_from(body.clone()) {
+            return Ok(Some(ResponseData {
+                status,
+                mime_type: MimeType::ApplicationJson,
+                body: serde_json::to_string(&description.evaluate()?)?,
+            }));
+        }
+
         let response = if let Ok(body) = rune::from_value(&body) {
             ResponseData {
                 status,
                 body,
                 mime_type: MimeType::TextPlain,
             }
-        } else if let Ok(description) = rune::from_value(&body) {
-            ResponseData {
-                status,
-                mime_type: MimeType::ApplicationJson,
-                body: serde_json::to_string(&generate(&description).map_err(to_string)?)
-                    .map_err(|e| format!("Failed to serialize response object: {e}"))?,
-            }
         } else {
             ResponseData {
                 status,
                 mime_type: MimeType::ApplicationJson,
-                body: serde_json::to_string(&body)
-                    .map_err(|e| format!("Failed to serialize response object: {e}"))?,
+                body: serde_json::to_string(&body)?,
             }
         };
         return Ok(Some(response));
+    }
+
+    #[cfg(feature = "rugen")]
+    let result = checked_from_value(&result)?;
+
+    #[cfg(feature = "rugen")]
+    if let Ok(description) = DataDescription::try_from(&result) {
+        return Ok(Some(ResponseData {
+            status: 200,
+            mime_type: MimeType::ApplicationJson,
+            body: serde_json::to_string(&description.evaluate()?)?,
+        }));
     }
 
     if let Ok(body) = rune::from_value::<String>(&result) {
@@ -831,19 +839,9 @@ fn execute_and_parse_rune_script(
         }));
     }
 
-    if let Ok(description) = rune::from_value(&result) {
-        return Ok(Some(ResponseData {
-            status: 200,
-            mime_type: MimeType::ApplicationJson,
-            body: serde_json::to_string(&generate(&description).map_err(to_string)?)
-                .map_err(|e| format!("Failed to serialize response object: {e}"))?,
-        }));
-    }
-
     Ok(Some(ResponseData {
         status: 200,
-        body: serde_json::to_string(&result)
-            .map_err(|e| format!("Invalid response object: {e}"))?,
+        body: serde_json::to_string(&result)?,
         mime_type: MimeType::ApplicationJson,
     }))
 }

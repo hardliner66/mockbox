@@ -1,4 +1,4 @@
-use rune::{ContextError, Module, Value};
+use rugen::rune::{ContextError, Module, Value};
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 

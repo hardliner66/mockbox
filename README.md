@@ -31,7 +31,7 @@ A flexible HTTP proxy server powered by [Rune scripting](https://rune-rs.github.
     - [Cache API](#cache-api)
     - [Cache Example](#cache-example)
   - [`rugen`](#rugen)
-    - [Rugen Example](#rugen-example)
+    - [RuGen Example](#rugen-example)
 
 ## Features
 
@@ -296,25 +296,24 @@ Enables the [rugen](https://github.com/hardliner66/rugen) API to build descripti
 
 _This is **enabled** by default_
 
-#### Rugen Example
+#### RuGen Example
 
 This is what describing data with `RuGen` looks like:
 ```rs
-use rugen::*;
-describe(
-    #{
-        asdf: 1..10,
-        values: 5.values(55.0..128.0),
-        range_from: 100..,
-        range_to: ..100,
-        choice: [
-            #{ A: 100..=200 },
-            #{ B: -100..100 },
-            #{ C: 0.5..2.5 },
-            #{ D: alphanumeric(10) },
-        ].pick(),
-    },
-)?
+use rugen as r;
+
+#{
+    asdf: 1..10,
+    values: 5.values(55.0..128.0),
+    range_from: 100..,
+    range_to: ..100,
+    choice: r::choose([
+        #{ A: 100..=200 },
+        #{ B: -100..100 },
+        #{ C: 0.5..2.5 },
+        #{ D: r::string(10) },
+    ]),
+}
 ```
 
 For more information on `RuGen`, please visit the [project repository](https://github.com/hardliner66/rugen).
