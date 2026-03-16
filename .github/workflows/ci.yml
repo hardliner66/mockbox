@@ -16,9 +16,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-            glibc: 2.17
             archive_ext: .tgz
           - os: macos-latest
             target: x86_64-apple-darwin
@@ -32,7 +31,6 @@ jobs:
 
     env:
       BIN_NAME: mockbox
-      GLIBC_VERSION: ${{ matrix.glibc }}
 
     steps:
       - name: Checkout
