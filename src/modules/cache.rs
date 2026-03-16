@@ -4,12 +4,12 @@ use tokio::sync::RwLock;
 
 /// A thread-safe persistent key-value store
 #[derive(Clone)]
-pub struct Storage {
+pub struct Cache {
     db: Arc<RwLock<HashMap<String, serde_json::Value>>>,
 }
 
-impl Storage {
-    /// Create a new storage instance with the given database path
+impl Cache {
+    /// Create a new cache instance
     pub fn new() -> Self {
         let db = HashMap::new();
         Self {
@@ -47,95 +47,95 @@ impl Storage {
         Ok(self.db.read().await.contains_key(key))
     }
 
-    /// Clear all values from storage
+    /// Clear all values from cache
     pub async fn clear(&self) -> Result<(), String> {
         self.db.write().await.clear();
         Ok(())
     }
 
-    /// Get all keys in storage
+    /// Get all keys in cache
     pub async fn keys(&self) -> Result<Vec<String>, String> {
         let db = self.db.read().await;
         Ok(db.keys().cloned().collect::<Vec<String>>())
     }
 
-    /// Get the number of keys in storage
+    /// Get the number of keys in cache
     pub async fn len(&self) -> Result<usize, String> {
         Ok(self.db.read().await.len())
     }
 
-    /// Check if storage is empty
+    /// Check if cache is empty
     pub async fn is_empty(&self) -> Result<bool, String> {
         Ok(self.db.read().await.is_empty())
     }
 }
 
-/// Create a Rune module for the storage functionality
-pub fn storage_module(storage: &Storage) -> Result<Module, ContextError> {
-    let mut module = Module::with_item(["storage"])?;
+/// Create a Rune module for the cache functionality
+pub fn cache_module(cache: &Cache) -> Result<Module, ContextError> {
+    let mut module = Module::with_item(["cache"])?;
 
     // Register functions
     {
-        let storage = storage.clone();
+        let cache = cache.clone();
         module
             .function("set", move |key: &str, value: Value| {
-                tokio::runtime::Handle::current().block_on(storage.set(key, value))
+                tokio::runtime::Handle::current().block_on(cache.set(key, value))
             })
             .build()?;
     }
     {
-        let storage = storage.clone();
+        let cache = cache.clone();
         module
             .function("get", move |key: &str| {
-                tokio::runtime::Handle::current().block_on(storage.get(key))
+                tokio::runtime::Handle::current().block_on(cache.get(key))
             })
             .build()?;
     }
     {
-        let storage = storage.clone();
+        let cache = cache.clone();
         module
             .function("delete", move |key: &str| {
-                tokio::runtime::Handle::current().block_on(storage.delete(key))
+                tokio::runtime::Handle::current().block_on(cache.delete(key))
             })
             .build()?;
     }
     {
-        let storage = storage.clone();
+        let cache = cache.clone();
         module
             .function("has", move |key: &str| {
-                tokio::runtime::Handle::current().block_on(storage.has(key))
+                tokio::runtime::Handle::current().block_on(cache.has(key))
             })
             .build()?;
     }
     {
-        let storage = storage.clone();
+        let cache = cache.clone();
         module
             .function("clear", move || {
-                tokio::runtime::Handle::current().block_on(storage.clear())
+                tokio::runtime::Handle::current().block_on(cache.clear())
             })
             .build()?;
     }
     {
-        let storage = storage.clone();
+        let cache = cache.clone();
         module
             .function("keys", move || {
-                tokio::runtime::Handle::current().block_on(storage.keys())
+                tokio::runtime::Handle::current().block_on(cache.keys())
             })
             .build()?;
     }
     {
-        let storage = storage.clone();
+        let cache = cache.clone();
         module
             .function("len", move || {
-                tokio::runtime::Handle::current().block_on(storage.len())
+                tokio::runtime::Handle::current().block_on(cache.len())
             })
             .build()?;
     }
     {
-        let storage = storage.clone();
+        let cache = cache.clone();
         module
             .function("is_empty", move || {
-                tokio::runtime::Handle::current().block_on(storage.is_empty())
+                tokio::runtime::Handle::current().block_on(cache.is_empty())
             })
             .build()?;
     }

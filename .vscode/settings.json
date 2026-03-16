@@ -9,6 +9,7 @@
         "editor.formatOnSave": false
     },
     "cSpell.words": [
+        "axum",
         "binstall",
         "mockbox",
         "msvc",
@@ -19,6 +20,7 @@
         "rustup",
         "serde",
         "softprops",
+        "tokio",
         "usize"
     ]
 }

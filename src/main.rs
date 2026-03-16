@@ -14,6 +14,7 @@ use directories::ProjectDirs;
 use notify::{Event, EventKind, RecursiveMode, Watcher};
 use parking_lot::RwLock;
 use reqwest::Client;
+use rugen::generate;
 use rune::{
     Context, ContextError, Diagnostics, Module, Source, Sources, Vm,
     termcolor::{ColorChoice, StandardStream},
@@ -58,13 +59,14 @@ impl Clone for AppStateLog {
     }
 }
 
+#[derive(Clone)]
 struct AppStateMock {
     local_script_path: PathBuf,
     global_script_path: PathBuf,
-    cache: Arc<RwLock<Option<ScriptCache>>>,
+    script_cache: Arc<RwLock<Option<ScriptCache>>>,
     shared: AppStateShared,
-    #[cfg(feature = "storage")]
-    storage: Storage,
+    #[cfg(feature = "cache")]
+    cache: Cache,
 }
 
 impl AppStateMock {
@@ -82,10 +84,10 @@ impl AppStateMock {
         Self {
             local_script_path,
             global_script_path,
-            cache: Arc::new(RwLock::new(None)),
+            script_cache: Arc::new(RwLock::new(None)),
             shared,
-            #[cfg(feature = "storage")]
-            storage: Storage::new(),
+            #[cfg(feature = "cache")]
+            cache: Cache::new(),
         }
     }
     fn get_active_script_path(&self) -> Option<PathBuf> {
@@ -115,8 +117,8 @@ impl AppStateMock {
 
         // Check cache
         {
-            let cache = self.cache.read();
-            if let Some(cached) = cache.as_ref()
+            let script_cache = self.script_cache.read();
+            if let Some(cached) = script_cache.as_ref()
                 && cached.source_path == active_path
                 && cached.modified_time == modified_time
             {
@@ -148,8 +150,8 @@ impl AppStateMock {
         let unit_arc = Arc::new(unit);
 
         {
-            let mut cache = self.cache.write();
-            *cache = Some(ScriptCache {
+            let mut script_cache = self.script_cache.write();
+            *script_cache = Some(ScriptCache {
                 context: context_arc.clone(),
                 unit: unit_arc.clone(),
                 source_path: active_path,
@@ -160,7 +162,7 @@ impl AppStateMock {
         Ok((context_arc, unit_arc))
     }
 
-    #[cfg_attr(not(feature = "storage"), expect(clippy::unused_self))]
+    #[cfg_attr(not(feature = "cache"), expect(clippy::unused_self))]
     fn compile_rune_script(&self, script: &str) -> Result<(Context, rune::Unit), String> {
         let mut context = rune_modules::default_context()
             .map_err(|e| format!("Failed to create context: {e}"))?;
@@ -174,15 +176,15 @@ impl AppStateMock {
             .install(rugen::module().map_err(to_string)?)
             .map_err(to_string)?;
 
-        // Install storage module
-        #[cfg(feature = "storage")]
+        // Install cache module
+        #[cfg(feature = "cache")]
         {
             context
                 .install(
-                    storage_module(&self.storage)
-                        .map_err(|e| format!("Failed to create storage module: {e}"))?,
+                    cache_module(&self.cache)
+                        .map_err(|e| format!("Failed to create cache module: {e}"))?,
                 )
-                .map_err(|e| format!("Failed to install storage module: {e}"))?;
+                .map_err(|e| format!("Failed to install cache module: {e}"))?;
         }
 
         let mut sources = Sources::new();
@@ -212,18 +214,18 @@ impl AppStateMock {
     }
 }
 
-impl Clone for AppStateMock {
-    fn clone(&self) -> Self {
-        Self {
-            local_script_path: self.local_script_path.clone(),
-            global_script_path: self.global_script_path.clone(),
-            cache: self.cache.clone(),
-            shared: self.shared.clone(),
-            #[cfg(feature = "storage")]
-            storage: self.storage.clone(),
-        }
-    }
-}
+// impl Clone for AppStateMock {
+//     fn clone(&self) -> Self {
+//         Self {
+//             local_script_path: self.local_script_path.clone(),
+//             global_script_path: self.global_script_path.clone(),
+//             script_cache: self.script_cache.clone(),
+//             shared: self.shared.clone(),
+//             #[cfg(feature = "cache")]
+//             cache: self.cache.clone(),
+//         }
+//     }
+// }
 
 fn setup_file_watcher(
     cache: Arc<RwLock<Option<ScriptCache>>>,
@@ -289,8 +291,8 @@ fn setup_file_watcher(
 use clap::{Parser, Subcommand};
 
 use crate::helper::to_string;
-#[cfg(feature = "storage")]
-use crate::modules::storage::{Storage, storage_module};
+#[cfg(feature = "cache")]
+use crate::modules::cache::{Cache, cache_module};
 
 #[derive(Parser)]
 struct Cli {
@@ -329,7 +331,10 @@ enum Mode {
         output: Option<PathBuf>,
     },
     /// Print the example script and exit
-    Example,
+    Example {
+        #[command(subcommand)]
+        example_type: Option<ExampleType>,
+    },
     /// Log incoming requests without running a script
     Log,
     /// Run a Rune script for each request
@@ -337,6 +342,14 @@ enum Mode {
         /// Path to the Rune script to execute for each request
         script: Option<PathBuf>,
     },
+}
+
+#[derive(Default, Subcommand)]
+enum ExampleType {
+    #[default]
+    Mock,
+    #[cfg(feature = "rugen")]
+    Gen,
 }
 
 #[cfg(target_family = "unix")]
@@ -379,8 +392,15 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
     let app = match mode {
-        Mode::Example => {
-            println!("{}", include_str!("../mockbox.rn"));
+        Mode::Example { example_type } => {
+            match example_type.unwrap_or_default() {
+                ExampleType::Mock => {
+                    println!("{}", include_str!("../mockbox.rn"));
+                }
+                ExampleType::Gen => {
+                    println!("{}", include_str!("../examples/gen_example.rn"));
+                }
+            }
             return Ok(());
         }
         Mode::Log => {
@@ -410,7 +430,7 @@ async fn main() -> anyhow::Result<()> {
 
             // Set up file watcher
             if let Err(e) = setup_file_watcher(
-                state.cache.clone(),
+                state.script_cache.clone(),
                 state.local_script_path.clone(),
                 state.global_script_path.clone(),
             ) {
@@ -785,6 +805,13 @@ fn execute_and_parse_rune_script(
                 body,
                 mime_type: MimeType::TextPlain,
             }
+        } else if let Ok(description) = rune::from_value(&body) {
+            ResponseData {
+                status,
+                mime_type: MimeType::ApplicationJson,
+                body: serde_json::to_string(&generate(&description).map_err(to_string)?)
+                    .map_err(|e| format!("Failed to serialize response object: {e}"))?,
+            }
         } else {
             ResponseData {
                 status,
@@ -804,7 +831,15 @@ fn execute_and_parse_rune_script(
         }));
     }
 
-    // Parse response
+    if let Ok(description) = rune::from_value(&result) {
+        return Ok(Some(ResponseData {
+            status: 200,
+            mime_type: MimeType::ApplicationJson,
+            body: serde_json::to_string(&generate(&description).map_err(to_string)?)
+                .map_err(|e| format!("Failed to serialize response object: {e}"))?,
+        }));
+    }
+
     Ok(Some(ResponseData {
         status: 200,
         body: serde_json::to_string(&result)
@@ -825,8 +860,7 @@ fn parts(value: &str) -> Vec<String> {
 fn module() -> Result<Module, ContextError> {
     let mut m = Module::new();
     m.function("cfg", |key: &str| {
-        (cfg!(feature = "storage") && key == "storage")
-            || (cfg!(feature = "rugen") && key == "rugen")
+        (cfg!(feature = "cache") && key == "cache") || (cfg!(feature = "rugen") && key == "rugen")
     })
     .build()?;
     m.function_meta(parts)?;

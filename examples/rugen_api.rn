@@ -7,19 +7,19 @@ pub fn handle_request(request) {
 
     match path.parts() {
         ["demo"] => {
-            use rugen::*;
-            describe(
+            use rugen as r;
+            r::describe(
                 #{
                     asdf: 1..10,
                     values: 5.values(55.0..128.0),
                     range_from: 100..,
                     range_to: ..100,
-                    choice: [
+                    choice: r::choose([
                         #{ A: 100..=200 },
                         #{ B: -100..100 },
                         #{ C: 0.5..2.5 },
-                        #{ D: alphanumeric(10) },
-                    ].pick(),
+                        #{ D: r::string(10) },
+                    ]),
                 },
             )?
         }

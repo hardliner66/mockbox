@@ -27,9 +27,9 @@ A flexible HTTP proxy server powered by [Rune scripting](https://rune-rs.github.
 - [Use Cases](#use-cases)
   - [Testing](#testing)
 - [Features](#features-1)
-  - [`storage`](#storage)
-    - [Storage API](#storage-api)
-    - [Storage Example](#storage-example)
+  - [`cache`](#cache)
+    - [Cache API](#cache-api)
+    - [Cache Example](#cache-example)
   - [`rugen`](#rugen)
     - [Rugen Example](#rugen-example)
 
@@ -251,41 +251,41 @@ curl http://localhost:3333/some/unhandled/path
 
 ## Features
 
-### `storage`
+### `cache`
 
-Enables the storage API to persist data between requests.
+Enables the cache API to persist data between requests.
 
 _This is **enabled** by default_
 
-#### Storage API
+#### Cache API
 
 ```rs
 // store a rune value
-storage::set(key: &str, value: rune::Value) -> Result<()>;
+cache::set(key: &str, value: rune::Value) -> Result<()>;
 
 // load a stored value
-storage::get(key: &str) -> Result<rune::Value>;
+cache::get(key: &str) -> Result<rune::Value>;
 
 // delete a stored value
-storage::delete(key: &str) -> Result<()>;
+cache::delete(key: &str) -> Result<()>;
 
 // check if a value exists
-storage::has(key: &str) -> bool;
+cache::has(key: &str) -> bool;
 
-// clear the whole storage
-storage::clear() -> Result<()>;
+// clear the whole cache
+cache::clear() -> Result<()>;
 
 // get keys of all stored values
-storage::keys() -> Result<()>;
+cache::keys() -> Result<()>;
 ```
 
-#### Storage Example
+#### Cache Example
 
 ```rs
 ["demo"] => {
-    let demo_count = storage::get("demo_count")?.unwrap_or(0);
+    let demo_count = cache::get("demo_count")?.unwrap_or(0);
     let new_demo_count = demo_count + 1;
-    storage::set("demo_count", new_demo_count)?;
+    cache::set("demo_count", new_demo_count)?;
     #{ message: `This demo endpoint has been called ${new_demo_count} times` }
 },
 ```
