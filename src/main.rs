@@ -319,6 +319,15 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Mode {
+    /// Run a Rune script to generate data using `RuGen` and print it, without starting the server
+    #[cfg(feature = "rugen")]
+    Gen {
+        #[arg(short, long)]
+        pretty: bool,
+        script: PathBuf,
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
     /// Print the example script and exit
     Example,
     /// Log incoming requests without running a script
@@ -422,6 +431,55 @@ async fn main() -> anyhow::Result<()> {
                     async move { handle_with_rune(state, request).await }
                 }))
                 .into_make_service()
+        }
+
+        #[cfg(feature = "rugen")]
+        Mode::Gen {
+            pretty,
+            script,
+            output,
+        } => {
+            let mut context = rune_modules::default_context()?;
+            context.install(rugen::module()?)?;
+            let mut sources = Sources::new();
+            sources.insert(Source::from_path(script)?)?;
+            let mut diagnostics = Diagnostics::new();
+
+            let result = rune::prepare(&mut sources)
+                .with_context(&context)
+                .with_diagnostics(&mut diagnostics)
+                .build();
+
+            if !diagnostics.is_empty() {
+                let mut writer = StandardStream::stderr(ColorChoice::Always);
+                diagnostics.emit(&mut writer, &sources)?;
+
+                anyhow::bail!("Script compilation failed");
+            }
+
+            let unit = Arc::new(result?);
+            let runtime = Arc::new(context.runtime()?);
+
+            let mut vm = Vm::new(runtime.clone(), unit);
+
+            let result = vm.call(rune::Hash::type_hash(["main"]), ())?;
+            let output_string = if let Ok(string_result) = rune::from_value::<String>(&result) {
+                string_result
+            } else {
+                let description = rugen::DataDescription::try_from(&result)?;
+                let value = rugen::generate(&description)?;
+                if pretty {
+                    serde_json::to_string_pretty(&value)?
+                } else {
+                    serde_json::to_string(&value)?
+                }
+            };
+            if let Some(output_path) = output {
+                std::fs::write(output_path, output_string)?;
+            } else {
+                println!("{output_string}");
+            }
+            return Ok(());
         }
     };
 
