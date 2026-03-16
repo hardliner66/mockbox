@@ -2,7 +2,7 @@
 name = "mockbox"
 description = "A Rust-based HTTP mock server with scripting capabilities using Rune."
 license-file = "LICENSE"
-version = "0.18.0"
+version = "0.19.0"
 edition = "2024"
 repository = "https://github.com/hardliner66/mockbox"
 
@@ -20,7 +20,7 @@ rune-modules = { version = "0.14.1", features = ["full"] }
 directories = "6.0.0"
 notify = "8.2.0"
 parking_lot = "0.12"
-rugen = { version = "0.10.0", features = ["fmt"], optional = true }
+rugen = { version = "0.12.0", features = ["fmt"], optional = true }
 
 [target.'cfg(unix)'.dependencies]
 privdrop = "0.5.6"

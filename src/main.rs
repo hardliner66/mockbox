@@ -302,7 +302,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Mode {
-    /// Run a Rune script to generate data using `RuGen` and print it, without starting the server
+    /// Run a Rune script to generate data using `RuGen`, without starting the server
     #[cfg(feature = "rugen")]
     Gen {
         #[arg(short, long)]
@@ -313,11 +313,7 @@ enum Mode {
     },
     /// Format a rune script
     #[cfg(feature = "rugen")]
-    Format {
-        #[arg(short, long)]
-        in_place: bool,
-        script: PathBuf,
-    },
+    Format { script: PathBuf },
     /// Print the example script and exit
     Example {
         #[command(subcommand)]
@@ -394,14 +390,8 @@ async fn main() -> anyhow::Result<()> {
             return Ok(());
         }
 
-        Mode::Format { in_place, script } => {
-            let formatted = rugen::format_rune_script(&script).expect("Could not format script!");
-            if in_place {
-                std::fs::write(&script, formatted)?;
-                println!("Formatted script written to {}", script.display());
-            } else {
-                println!("{}", formatted);
-            }
+        Mode::Format { script } => {
+            rugen::format_rune_script(&script).expect("Could not format script!");
             return Ok(());
         }
 
