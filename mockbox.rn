@@ -13,8 +13,8 @@ pub fn handle_request(request) {
         ["echo"] => body,
 
         // Example: Mock API with JSON response
-        ["api", "users"] => [
-            #{ "id": 1, "name": "Alice" }, //
+        ["api", "users"] => [ //
+            #{ "id": 1, "name": "Alice" },
             #{ "id": 2, "name": "Bob" },
         ],
 
@@ -29,8 +29,8 @@ pub fn handle_request(request) {
         ["api", "mock", ..] => #{ mocked: true, path, method, query },
 
         // Example: Mock API with JSON response
-        ["demo"] => [
-            #{ id: 1, name: "Alice" }, //
+        ["demo"] => [ //
+            #{ id: 1, name: "Alice" },
             #{ id: 2, name: "Bob", details: #{ "age": 30, "city": "New York" } },
         ],
     }
