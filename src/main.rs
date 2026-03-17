@@ -185,8 +185,6 @@ impl AppStateMock {
         if !diagnostics.is_empty() {
             let mut writer = StandardStream::stderr(ColorChoice::Always);
             diagnostics.emit(&mut writer, &sources)?;
-
-            anyhow::bail!("Script compilation failed");
         }
 
         let unit = result?;
@@ -465,8 +463,6 @@ async fn main() -> anyhow::Result<()> {
             if !diagnostics.is_empty() {
                 let mut writer = StandardStream::stderr(ColorChoice::Always);
                 diagnostics.emit(&mut writer, &sources)?;
-
-                anyhow::bail!("Script compilation failed");
             }
 
             let unit = Arc::new(result?);
