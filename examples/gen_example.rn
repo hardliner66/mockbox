@@ -1,19 +1,19 @@
-use rugen as r;
+use rugen::ALPHA;
 
 pub fn main() {
-    #{
+     rugen::describe!(#{
         asdf: 1..10,
+        values: #{ //
+            fixed: (55.0..128.0) * 5,
+            variable: (55.0..128.0) * (2..8),
+        },
         range_from: 100..,
         range_to: ..100,
-        values: #{ //
-            fixed: 5.values(55.0..128.0),
-            variable: r::values(2..8, 55.0..128.0),
-        },
-        choice: r::choose([ //
-            #{ A: 100..=200 },
-            #{ B: -100..100 },
-            #{ C: 0.5..2.5 },
-            #{ D: r::string(10) },
-        ]),
-    }
+        choice: #{ A: 100..=200 }
+              | #{ B: -100..100 }
+              | #{ C: 0.5..2.5 }
+              | #{ D: ALPHA * 10 },
+        string: ALPHA * 10,
+        string_var: ALPHA * (5..15),
+    })
 }

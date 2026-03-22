@@ -17,7 +17,7 @@ use notify::{Event, EventKind, RecursiveMode, Watcher};
 use parking_lot::RwLock;
 use reqwest::Client;
 #[cfg(feature = "rugen")]
-use rugen::{checked_from_value, try_build_description};
+use rugen::rune::alloc::clone::TryClone;
 use rune::{
     Context, ContextError, Diagnostics, Module, Source, Sources, Vm,
     termcolor::{ColorChoice, StandardStream},
@@ -165,15 +165,17 @@ impl AppStateMock {
 
         context.install(module()?)?;
 
+        let source = Source::memory(script)?;
+
         #[cfg(feature = "rugen")]
-        context.install(rugen::module()?)?;
+        context.install(rugen::module(source.try_clone()?)?)?;
 
         // Install cache module
         #[cfg(feature = "cache")]
         context.install(cache_module(&self.cache)?)?;
 
         let mut sources = Sources::new();
-        sources.insert(Source::memory(script)?)?;
+        sources.insert(source)?;
 
         let mut diagnostics = Diagnostics::new();
 
@@ -450,9 +452,10 @@ async fn main() -> anyhow::Result<()> {
             output,
         } => {
             let mut context = rune_modules::default_context()?;
-            context.install(rugen::module()?)?;
+            let source = Source::from_path(script)?;
+            context.install(rugen::module(source.try_clone()?)?)?;
             let mut sources = Sources::new();
-            sources.insert(Source::from_path(script)?)?;
+            sources.insert(source)?;
             let mut diagnostics = Diagnostics::new();
 
             let result = rune::prepare(&mut sources)
@@ -474,10 +477,7 @@ async fn main() -> anyhow::Result<()> {
             let output_string = if let Ok(string_result) = rune::from_value::<String>(&result) {
                 string_result
             } else {
-                use rugen::{evaluate, try_build_description};
-
-                let description = try_build_description(&result)?;
-                let value = evaluate(&description)?;
+                let value = rugen::generate(result)?;
                 if pretty {
                     serde_json::to_string_pretty(&value)?
                 } else {
@@ -779,20 +779,6 @@ fn execute_and_parse_rune_script(
     }
 
     if let Ok((status, body)) = rune::from_value::<(u16, Value)>(&result) {
-        #[cfg(feature = "rugen")]
-        let body = checked_from_value::<Value>(&body)?;
-
-        #[cfg(feature = "rugen")]
-        if let Ok(description) = try_build_description(&body) {
-            use rugen::evaluate;
-
-            return Ok(Some(ResponseData {
-                status,
-                mime_type: MimeType::ApplicationJson,
-                body: serde_json::to_string(&evaluate(&description)?)?,
-            }));
-        }
-
         let response = if let Ok(body) = rune::from_value(&body) {
             ResponseData {
                 status,
@@ -803,24 +789,13 @@ fn execute_and_parse_rune_script(
             ResponseData {
                 status,
                 mime_type: MimeType::ApplicationJson,
+                #[cfg(feature = "rugen")]
+                body: serde_json::to_string(&rugen::generate(result)?)?,
+                #[cfg(not(feature = "rugen"))]
                 body: serde_json::to_string(&body)?,
             }
         };
         return Ok(Some(response));
-    }
-
-    #[cfg(feature = "rugen")]
-    let result = checked_from_value(&result)?;
-
-    #[cfg(feature = "rugen")]
-    if let Ok(description) = try_build_description(&result) {
-        use rugen::evaluate;
-
-        return Ok(Some(ResponseData {
-            status: 200,
-            mime_type: MimeType::ApplicationJson,
-            body: serde_json::to_string(&evaluate(&description)?)?,
-        }));
     }
 
     if let Ok(body) = rune::from_value::<String>(&result) {
@@ -833,6 +808,9 @@ fn execute_and_parse_rune_script(
 
     Ok(Some(ResponseData {
         status: 200,
+        #[cfg(feature = "rugen")]
+        body: serde_json::to_string(&rugen::generate(result)?)?,
+        #[cfg(not(feature = "rugen"))]
         body: serde_json::to_string(&result)?,
         mime_type: MimeType::ApplicationJson,
     }))

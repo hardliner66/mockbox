@@ -1114,7 +1114,7 @@ dependencies = [
 
 [[package]]
 name = "mockbox"
-version = "0.21.0"
+version = "0.22.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1692,12 +1692,13 @@ dependencies = [
 
 [[package]]
 name = "rugen"
-version = "0.16.0"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9cf976723fa3f9f8a917857e34f10a7194f065b013fdbc96bdf6c5f5829fa78"
+checksum = "6ad26718cf5063013d71e4c706de7d196882ad495427e8b68a409f73ea7cdad8"
 dependencies = [
  "rand 0.10.0",
  "rune",
+ "serde",
  "thiserror 2.0.18",
 ]
 
